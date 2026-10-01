@@ -18,7 +18,8 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 | `packages/cc-bridge` | exports cc-factory's layered text or blocks JSON, normalises to `layer:0`, finds a cc-binaries checkout, and `ccToWorld` (where cc-factory actually places a block) |
 | `packages/tester` | builds a turtlesim world from a blueprint, runs `factory.lua`, diffs placed blocks against the blueprint |
 | `packages/mcp` | stdio MCP server: `blueprint_new/apply/get/validate/export_cc/list`, `test_run_build` |
-| `packages/web` | read-only viewer: layer slicer, materials, test report, missing/wrong overlay |
+| `packages/assets` | `npm run assets`: builds a block catalog and texture cache from your local ATM10 install (jars, not committed) |
+| `packages/web` | viewer and editor: search ATM10 blocks, place/break by hand, layer slicer, materials, test report, missing/wrong overlay |
 
 ## Setup
 
@@ -43,11 +44,32 @@ Tests that run the real simulator need CraftOS-PC and a [cc-binaries](https://gi
 }
 ```
 
-View the blueprints (reloads as files change):
+Build the block catalog and textures once (reads your CurseForge ATM10 instance and the vanilla 1.21.1 jar; takes seconds, output goes to the gitignored `.assets/`). Override paths with `ATM10_INSTANCE`, `MC_CLIENT_JAR` and `TB_ASSETS`:
+
+```bash
+npm run assets
+```
+
+View and edit the blueprints (reloads as files change):
 
 ```bash
 TB_BLUEPRINTS=blueprints npm run dev -w @tb/web
 ```
+
+## Editing by hand
+
+Search any ATM10 block in the sidebar and click a result to put it in the selected hotbar slot (keys 1-9). Edits write straight to the blueprint file, so Claude and the viewer see each other's changes.
+
+| input | action |
+| --- | --- |
+| right click | place on the clicked face (blockstate follows Minecraft: stairs face you and take top/bottom from where you click, logs take the clicked axis, furnaces face you, slabs merge into doubles) |
+| left click | break |
+| middle click | pick the block under the cursor |
+| drag | orbit/pan as before; a click only counts if the mouse barely moved |
+| `F` | toggle fly mode: WASD, Space up, Shift down, Ctrl sprint, crosshair aims; Esc leaves |
+| Cmd/Ctrl+Z, plus Shift | undo / redo |
+
+Slabs render at half height; stairs are approximated as half-height slabs, and other non-cube models as textured cubes. Blocks with custom or runtime textures (about 3,000 of 53,000) show a flat colour.
 
 ## Limits to know about
 

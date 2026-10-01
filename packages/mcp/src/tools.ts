@@ -1,37 +1,14 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   applyOps, bounds, materials, newBlueprint, renderLayer, validate,
   type Blueprint, type Op,
 } from "@tb/blueprint";
+import { Store } from "@tb/blueprint/store";
 import { exportSchema, normalise } from "@tb/cc-bridge";
 import { formatReport, runBuildTest } from "@tb/tester";
 
-/** Blueprint files on disk are the source of truth; every handler reads and writes them. */
-export class Store {
-  constructor(readonly dir: string) {}
-
-  path(name: string): string {
-    if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`bad blueprint name "${name}" (letters, digits, _ and - only)`);
-    return join(this.dir, `${name}.blueprint.json`);
-  }
-
-  list(): string[] {
-    if (!existsSync(this.dir)) return [];
-    return readdirSync(this.dir).filter((f) => f.endsWith(".blueprint.json")).map((f) => f.replace(/\.blueprint\.json$/, "")).sort();
-  }
-
-  load(name: string): Blueprint {
-    const p = this.path(name);
-    if (!existsSync(p)) throw new Error(`no blueprint named "${name}" (have: ${this.list().join(", ") || "none"})`);
-    return JSON.parse(readFileSync(p, "utf8")) as Blueprint;
-  }
-
-  save(bp: Blueprint): void {
-    mkdirSync(this.dir, { recursive: true });
-    writeFileSync(this.path(bp.name), JSON.stringify(bp) .replace(/\],\[/g, "],\n[") + "\n");
-  }
-}
+export { Store };
 
 function summary(bp: Blueprint): string {
   const bb = bounds(bp);

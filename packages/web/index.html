@@ -24,13 +24,39 @@
   label.chk { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .name { overflow-wrap: anywhere; }
+  input[type=search] { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .row > label { margin: 0; }
+  #results { max-height: 260px; overflow: auto; margin-top: 6px; }
+  li.hit { cursor: pointer; padding: 3px 4px; border-radius: 6px; }
+  li.hit:hover { background: var(--line); }
+  small { color: var(--muted); font-size: 11px; }
+  .icon { width: 28px; height: 28px; flex: none; background-size: 100% auto; background-position: top; image-rendering: pixelated; border-radius: 3px; border: 1px solid #0003; }
+  #hotbar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 4px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); }
+  .slot { position: relative; padding: 3px; width: 44px; height: 44px; display: grid; place-items: center; }
+  .slot.on { outline: 2px solid #3b82f6; outline-offset: 1px; }
+  .slot small { position: absolute; top: 1px; left: 4px; }
+  .slot .icon { width: 34px; height: 34px; }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; mix-blend-mode: difference; }
+  #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; } #crosshair::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  #status { position: fixed; top: 12px; right: 14px; color: var(--muted); }
 </style>
 </head>
 <body>
 <div id="view"></div>
+<div id="crosshair" hidden></div>
+<div id="hotbar"></div>
+<div id="status"></div>
 <aside>
   <h1>Turtle Blueprints</h1>
   <select id="pick" aria-label="Blueprint"></select>
+  <div class="row"><button id="newbp">New blueprint</button><label class="chk"><input id="editing" type="checkbox" checked> Edit</label></div>
+  <div class="note">F fly &middot; left click break &middot; right click place &middot; middle click pick &middot; 1-9 hotbar &middot; Cmd/Ctrl+Z undo</div>
+  <h2>Blocks</h2>
+  <input id="search" type="search" placeholder="Search ATM10 blocks" aria-label="Search blocks">
+  <ul id="results"></ul>
   <h2>Layers</h2>
   <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
   <div id="sliceLabel" class="note"></div>
