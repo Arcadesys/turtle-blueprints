@@ -235,6 +235,7 @@ renderer.setAnimationLoop((now) => {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   editor?.tick(dt);
-  controls.update();
+  // OrbitControls.update() re-aims the camera at its target even when disabled, which would undo mouselook in first person.
+  if (controls.enabled) controls.update();
   renderer.render(scene, camera);
 });
