@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { resolve } from "node:path";
-import { Store, applyTool, exportTool, getTool, newTool, testTool, validateTool } from "./tools";
+import { Store, applyTool, exportTool, gadgetsTool, getTool, listTool, manageTool, newTool, planTool, testTool, validateTool } from "./tools";
 
 const store = new Store(resolve(process.env.TB_BLUEPRINTS ?? "blueprints"));
 const server = new McpServer({ name: "turtle-blueprints", version: "0.1.0" });
@@ -27,8 +27,33 @@ const name = z.string().describe("blueprint name: letters, digits, _ and -");
 
 server.registerTool(
   "blueprint_list",
-  { description: "List blueprints in the blueprint directory." },
-  guard(() => store.list().join("\n") || "no blueprints yet"),
+  { description: "List blueprints with block count, size, test status and description, plus archived names." },
+  guard(() => listTool(store)),
+);
+
+server.registerTool(
+  "blueprint_manage",
+  {
+    description:
+      "Manage blueprint files: rename or duplicate (needs to), archive (moves to .archive/, restorable; nothing is deleted), " +
+      "restore an archived blueprint, or describe (set the description).",
+    inputSchema: {
+      action: z.enum(["rename", "duplicate", "archive", "restore", "describe"]),
+      name,
+      to: name.optional().describe("new name for rename or duplicate"),
+      description: z.string().optional(),
+    },
+  },
+  (a) => guard(() => manageTool(store, a))(),
+);
+
+server.registerTool(
+  "blueprint_build_plan",
+  {
+    description: "Gathering checklist for building in game: each material in 64-stacks, turtle slots needed (16 max), and validation issues.",
+    inputSchema: { name },
+  },
+  (a) => guard(() => planTool(store, a))(),
 );
 
 server.registerTool(
@@ -71,6 +96,17 @@ server.registerTool(
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => exportTool(store, a))(),
+);
+
+server.registerTool(
+  "blueprint_export_gadgets",
+  {
+    description:
+      "Export as a Building Gadgets 2 template (the JSON the Template Manager pastes from the clipboard). Keeps blockstate. " +
+      "Writes outPath, default <blueprints>/exports/<name>.bg2.json.",
+    inputSchema: { name, outPath: z.string().optional() },
+  },
+  (a) => guard(() => gadgetsTool(store, a))(),
 );
 
 server.registerTool(

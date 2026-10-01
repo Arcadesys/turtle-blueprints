@@ -7,7 +7,8 @@
   "dependencies": {
     "@tb/blueprint": "*",
     "three": "^0.170.0",
-    "@tb/tester": "*"
+    "@tb/tester": "*",
+    "@tb/cc-bridge": "*"
   },
   "scripts": {
     "dev": "vite",
