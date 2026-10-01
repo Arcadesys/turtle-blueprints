@@ -9,7 +9,11 @@ import { formatReport, runBuildTest } from "@tb/tester";
 
 /** Blueprint files on disk are the source of truth; every handler reads and writes them. */
 export class Store {
-  constructor(readonly dir: string) {}
+  // No parameter property: the viewer's vite config loads this file with Node's type stripping.
+  readonly dir: string;
+  constructor(dir: string) {
+    this.dir = dir;
+  }
 
   path(name: string): string {
     if (!/^[A-Za-z0-9_-]+$/.test(name)) throw new Error(`bad blueprint name "${name}" (letters, digits, _ and - only)`);

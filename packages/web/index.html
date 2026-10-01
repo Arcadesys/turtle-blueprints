@@ -24,6 +24,31 @@
   label.chk { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .name { overflow-wrap: anywhere; }
+  button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button[aria-pressed=true] { background: #3a6fd8; border-color: #3a6fd8; color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  #view.wand canvas { cursor: crosshair; }
+  .row { display: flex; gap: 6px; }
+  .walkhelp, #crosshair { display: none; }
+  body.walking .walkhelp { display: block; }
+  body.walking.locked #crosshair { display: block; position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none;
+    background: linear-gradient(#fff, #fff) center / 2px 100% no-repeat, linear-gradient(#fff, #fff) center / 100% 2px no-repeat; mix-blend-mode: difference; }
+  #wheel button.hot { background: #3a6fd8; border-color: #3a6fd8; color: #fff; }
+  #wheel { position: fixed; width: 240px; height: 240px; margin: -120px 0 0 -120px; border-radius: 50%; display: none;
+           background: radial-gradient(circle, transparent 0 34px, var(--line) 35px, var(--panel) 36px); box-shadow: 0 6px 24px #0004; }
+  #wheel.open { display: block; }
+  #wheel, #wheelInfo { pointer-events: none; } #wheel button { pointer-events: auto; }
+  #wheel button { position: absolute; width: 92px; margin: -16px 0 0 -46px; border-radius: 16px; white-space: nowrap; }
+  #wheel button kbd { color: var(--muted); font-size: 11px; margin-left: 4px; }
+  #wheel [data-act=copy] { left: 50%; top: 17%; } #wheel [data-act=paste] { left: 78%; top: 50%; }
+  #wheel [data-act=delete] { left: 50%; top: 83%; } #wheel [data-act=generate] { left: 22%; top: 50%; }
+  #wheelInfo { position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; font-size: 12px;
+               padding: 2px 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
+  dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; width: min(460px, calc(100vw - 32px)); }
+  dialog::backdrop { background: #0005; }
+  dialog textarea { width: 100%; min-height: 90px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 10px 0 0; }
+  #genStatus .steps { font-family: ui-monospace, monospace; font-size: 11px; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -31,6 +56,11 @@
 <aside>
   <h1>Turtle Blueprints</h1>
   <select id="pick" aria-label="Blueprint"></select>
+  <h2>Selector wand</h2>
+  <div class="row"><button id="wand" aria-pressed="true">Wand on <kbd>Q</kbd></button><button id="walk" aria-pressed="false">Walk <kbd>F</kbd></button></div>
+  <div id="wandStatus" class="note">Click a block to select it, shift-click another to select the box between them, click the ground to target an empty cell. Drag to orbit. Undo with Ctrl/Cmd+Z.</div>
+  <div class="note walkhelp">Walking: WASD to move, Space/Shift to rise and sink, mouse to look. Left click selects at the crosshair, right click grows the box. With the wheel open, flick the mouse toward an action and click, or press its key. Esc or E frees the cursor: then drag to look and click to select, as in orbit view. E captures the mouse again.</div>
+  <div id="genStatus" class="note"></div>
   <h2>Layers</h2>
   <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
   <div id="sliceLabel" class="note"></div>
@@ -41,6 +71,23 @@
   <label class="chk"><input id="ghosts" type="checkbox" checked> Show missing / wrong blocks</label>
   <div class="note">A turtle built by cc-factory is mirrored left to right and sits behind-left of its start (turtlesim/README.md). Blueprint coordinates are shown as designed.</div>
 </aside>
+<div id="crosshair" aria-hidden="true"></div>
+<div id="wheel" role="menu" aria-label="Wand actions">
+  <button data-act="copy" role="menuitem">Copy<kbd>C</kbd></button>
+  <button data-act="paste" role="menuitem">Paste<kbd>V</kbd></button>
+  <button data-act="delete" role="menuitem">Delete<kbd>X</kbd></button>
+  <button data-act="generate" role="menuitem">Generate<kbd>G</kbd></button>
+  <div id="wheelInfo"></div>
+</div>
+<dialog id="gen">
+  <form method="dialog">
+    <h1>Generate</h1>
+    <div id="genWhere" class="note"></div>
+    <textarea id="genText" placeholder="e.g. a 2-block-wide spiral staircase up to the roof, in oak planks" aria-label="What to build"></textarea>
+    <div class="note">Claude edits the blueprint with the MCP tools, exports a cc-factory schema and runs the turtle test.</div>
+    <menu><button value="cancel">Cancel</button><button value="go" id="genGo">Generate</button></menu>
+  </form>
+</dialog>
 <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
