@@ -68,7 +68,7 @@ Search any ATM10 block in the sidebar and click a result to put it in the select
 | left click | break |
 | middle click | pick the block under the cursor |
 | drag | orbit/pan as before; a click only counts if the mouse barely moved |
-| `F` or the "Fly mode" button | toggle fly mode: WASD, Space up, Shift down, Ctrl sprint, crosshair aims; Esc leaves |
+| `F` or the "Walk mode" button | first person, walking: WASD, Space jump, Ctrl sprint, gravity and collision (steps onto half blocks, jumps one block); double-tap Space to fly (Space up, Shift down, no collision) and again to walk; Esc leaves |
 | Cmd/Ctrl+Z, plus Shift | undo / redo |
 
 Slabs render at half height; stairs are approximated as half-height slabs, and other non-cube models as textured cubes. Blocks with custom or runtime textures (about 3,000 of 53,000) show a flat colour.

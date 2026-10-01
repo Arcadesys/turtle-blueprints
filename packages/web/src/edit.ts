@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { baseId, placementState, raycast, slabMerge, type Hit, type Op, type RayHit, type Vec3 } from "@tb/blueprint";
-import { entryOf, hashColor } from "./textures";
+import { EYE_HEIGHT, PLAYER_HEIGHT, PLAYER_WIDTH, baseId, collides, placementState, raycast, slabMerge, stepBody, type Body, type Hit, type Op, type RayHit, type SolidAt, type Vec3 } from "@tb/blueprint";
+import { entryOf, hashColor, variantOf } from "./textures";
 import { selectedBlock, selectSlot, setSelectedBlock } from "./palette";
 
 export interface EditorContext {
@@ -64,6 +64,37 @@ export function initEditor(ctx: EditorContext) {
   const on = () => enabled.checked && ctx.ready();
   const flying = () => fly.isLocked;
 
+  // First person: walking (gravity, collision) or flying (free). Double-tap Space switches, like creative mode.
+  let walking = true;
+  let lastSpace = 0;
+  const body: Body = { x: 0, y: 0, z: 0, vy: 0, onGround: false };
+
+  /** Vertical extent of the block in a cell; slabs and stairs (drawn as half blocks) are half height. */
+  const solid: SolidAt = (x, y, z) => {
+    const id = ctx.cells().get(`${x},${y},${z}`);
+    if (!id) return null;
+    const v = variantOf(id);
+    let half = v?.s;
+    if (half && v?.x === 180) half = half === "bottom" ? "top" : "bottom";
+    if (half === "bottom") return [y - 0.5, y];
+    if (half === "top") return [y, y + 0.5];
+    return [y - 0.5, y + 0.5];
+  };
+
+  const overlapsPlayer = (c: Vec3) =>
+    walking && flying() &&
+    Math.abs(body.x - c[0]) < 0.5 + PLAYER_WIDTH / 2 && Math.abs(body.z - c[2]) < 0.5 + PLAYER_WIDTH / 2 &&
+    body.y < c[1] + 0.5 && body.y + PLAYER_HEIGHT > c[1] - 0.5;
+
+  function setMode(next: boolean) {
+    walking = next;
+    body.vy = 0;
+    if (next) { body.x = camera.position.x; body.y = camera.position.y - EYE_HEIGHT; body.z = camera.position.z; }
+    status.textContent = walking
+      ? "Walking: WASD move, Space jump, double-tap Space to fly, Esc to leave"
+      : "Flying: WASD move, Space up, Shift down, double-tap Space to walk, Esc to leave";
+  }
+
   function aim(): RayHit | null {
     const origin = camera.position.toArray() as Vec3;
     const ray = new THREE.Raycaster();
@@ -89,7 +120,7 @@ export function initEditor(ctx: EditorContext) {
       if (merged) return { at: h.cell, block: merged };
     }
     const at: Vec3 = [h.cell[0] + h.normal[0], h.cell[1] + h.normal[1], h.cell[2] + h.normal[2]];
-    if (ctx.cells().has(key(at))) return null;
+    if (ctx.cells().has(key(at)) || overlapsPlayer(at)) return null;
     return { at, block: placing };
   }
 
@@ -169,7 +200,15 @@ export function initEditor(ctx: EditorContext) {
     else if (e.button === 1) pick();
     refreshHover();
   });
-  fly.addEventListener("lock", () => { controls.enabled = false; crosshair.hidden = false; status.textContent = "Flying: WASD move, Space up, Shift down, Esc to leave"; });
+  fly.addEventListener("lock", () => {
+    controls.enabled = false;
+    crosshair.hidden = false;
+    // Start from the orbit camera's spot; step up out of any block we would start inside.
+    body.x = camera.position.x; body.y = camera.position.y - EYE_HEIGHT; body.z = camera.position.z;
+    for (let i = 0; i < 300 && collides(body.x, body.y, body.z, solid); i++) body.y += 1;
+    walking = true;
+    setMode(true);
+  });
   fly.addEventListener("unlock", () => {
     // Point the orbit camera at what we were looking at so it does not jump.
     const d = new THREE.Vector3();
@@ -194,6 +233,11 @@ export function initEditor(ctx: EditorContext) {
       return;
     }
     if (flying()) keys.add(e.code);
+    if (flying() && e.code === "Space" && !e.repeat) {
+      const now = performance.now();
+      if (now - lastSpace < 300) setMode(!walking);
+      lastSpace = now;
+    }
     if (/^Digit[1-9]$/.test(e.code)) selectSlot(Number(e.code.slice(5)) - 1);
     if ((e.metaKey || e.ctrlKey) && e.code === "KeyZ") {
       e.preventDefault();
@@ -240,15 +284,28 @@ export function initEditor(ctx: EditorContext) {
       updateWand(dt);
       hint.hidden = !on() || flying();
       if (!flying()) return;
-      const speed = (keys.has("ControlLeft") ? 24 : 9) * dt;
+      const sprint = keys.has("ControlLeft");
       move.set(0, 0, 0);
       if (keys.has("KeyW")) move.z -= 1;
       if (keys.has("KeyS")) move.z += 1;
       if (keys.has("KeyA")) move.x -= 1;
       if (keys.has("KeyD")) move.x += 1;
-      if (move.lengthSq()) fly.moveForward(-move.z * speed), fly.moveRight(move.x * speed);
-      if (keys.has("Space")) camera.position.y += speed;
-      if (keys.has("ShiftLeft") || keys.has("ShiftRight")) camera.position.y -= speed;
+      if (walking) {
+        const f = new THREE.Vector3();
+        camera.getWorldDirection(f);
+        f.y = 0;
+        f.normalize();
+        const speed = sprint ? 7 : 4.3;
+        if (move.lengthSq()) move.normalize();
+        // forward is -z in `move`; right of forward (fx, fz) is (-fz, fx).
+        stepBody(body, { vx: (f.x * -move.z - f.z * move.x) * speed, vz: (f.z * -move.z + f.x * move.x) * speed, jump: keys.has("Space") }, dt, solid);
+        camera.position.set(body.x, body.y + EYE_HEIGHT, body.z);
+      } else {
+        const speed = (sprint ? 24 : 9) * dt;
+        if (move.lengthSq()) fly.moveForward(-move.z * speed), fly.moveRight(move.x * speed);
+        if (keys.has("Space")) camera.position.y += speed;
+        if (keys.has("ShiftLeft") || keys.has("ShiftRight")) camera.position.y -= speed;
+      }
       refreshHover();
     },
   };
