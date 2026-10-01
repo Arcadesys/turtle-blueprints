@@ -192,6 +192,7 @@ function commit(ops: Op[]) {
   });
 }
 
+let starting = false;
 const pick = $<HTMLSelectElement>("pick");
 async function refreshList() {
   const names = (await (await fetch("/api/list")).json()) as string[];
@@ -201,7 +202,13 @@ async function refreshList() {
     if (names.includes(keep)) pick.value = keep;
     if (names.length) await load(pick.value, true);
   }
-  if (!names.length) $("sliceLabel").textContent = "No blueprints yet. Ask Claude to run blueprint_new.";
+  if (!names.length && !starting) {
+    // Nothing to edit yet: start an empty blueprint so the wand has something to build on.
+    starting = true;
+    await fetch("/api/new", { method: "POST", body: JSON.stringify({ name: "my-build" }) });
+    starting = false;
+    await refreshList();
+  }
 }
 pick.addEventListener("change", () => { framed = ""; void load(pick.value, true); });
 $("slice").addEventListener("input", () => { sidebar(); render(); });

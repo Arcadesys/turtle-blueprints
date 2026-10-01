@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { baseId, placementState, raycast, slabMerge, type Hit, type Op, type RayHit, type Vec3 } from "@tb/blueprint";
-import { entryOf } from "./textures";
+import { entryOf, hashColor } from "./textures";
 import { selectedBlock, selectSlot, setSelectedBlock } from "./palette";
 
 export interface EditorContext {
@@ -35,6 +35,25 @@ export function initEditor(ctx: EditorContext) {
   const ghost = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.28, depthWrite: false }));
   outline.visible = ghost.visible = false;
   scene.add(outline, ghost);
+
+  // A magic wand held in view: it shows editing is on, glows in the selected block's colour and swings on each edit.
+  const wand = new THREE.Group();
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.5, 8), new THREE.MeshLambertMaterial({ color: 0x5a3a1c }));
+  stick.position.y = 0.25;
+  const tipMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const tip = new THREE.Mesh(new THREE.OctahedronGeometry(0.045), tipMat);
+  tip.position.y = 0.55;
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.18, depthWrite: false }));
+  halo.position.y = 0.55;
+  wand.add(stick, tip, halo);
+  wand.position.set(0.36, -0.36, -0.7);
+  wand.scale.setScalar(0.55);
+  const rest = new THREE.Euler(-0.5, 0.15, -0.35);
+  wand.rotation.copy(rest);
+  camera.add(wand);
+  let swing = 0;
+  let clock = 0;
+  let lastBlock = "";
 
   const undo: Edit[] = [];
   const redo: Edit[] = [];
@@ -90,6 +109,7 @@ export function initEditor(ctx: EditorContext) {
   }
 
   function edit(ops: Op[], inverse: Op[], record = true) {
+    swing = 1;
     ctx.commit(ops);
     if (record) { undo.push({ ops, inverse }); redo.length = 0; }
   }
@@ -149,7 +169,7 @@ export function initEditor(ctx: EditorContext) {
     else if (e.button === 1) pick();
     refreshHover();
   });
-  fly.addEventListener("lock", () => { controls.enabled = false; crosshair.hidden = false; status.textContent = "Flying - Esc to leave"; });
+  fly.addEventListener("lock", () => { controls.enabled = false; crosshair.hidden = false; status.textContent = "Flying: WASD move, Space up, Shift down, Esc to leave"; });
   fly.addEventListener("unlock", () => {
     // Point the orbit camera at what we were looking at so it does not jump.
     const d = new THREE.Vector3();
@@ -170,8 +190,7 @@ export function initEditor(ctx: EditorContext) {
     if (t instanceof HTMLInputElement && t.type !== "checkbox" || t instanceof HTMLTextAreaElement) return;
     if (e.code === "KeyF" && !e.metaKey && !e.ctrlKey) {
       e.preventDefault();
-      if (flying()) fly.unlock();
-      else if (on()) fly.lock();
+      toggleFly();
       return;
     }
     if (flying()) keys.add(e.code);
@@ -188,11 +207,38 @@ export function initEditor(ctx: EditorContext) {
     }
   });
 
+  function updateWand(dt: number) {
+    wand.visible = enabled.checked && ctx.ready();
+    if (!wand.visible) return;
+    clock += dt;
+    swing = Math.max(0, swing - dt * 4);
+    const block = selectedBlock();
+    if (block !== lastBlock) {
+      lastBlock = block;
+      const c = hashColor(block);
+      tipMat.color.copy(c).offsetHSL(0, 0.2, 0.15);
+      (halo.material as THREE.MeshBasicMaterial).color.copy(c);
+    }
+    const s = Math.sin(swing * Math.PI);
+    wand.rotation.set(rest.x - s * 0.9, rest.y, rest.z + s * 0.3);
+    wand.position.y = -0.36 + Math.sin(clock * 2) * 0.008;
+    tip.rotation.y = clock * 2;
+    halo.scale.setScalar(1 + Math.sin(clock * 4) * 0.12 + s * 0.6);
+  }
+
+  const toggleFly = () => {
+    if (flying()) fly.unlock();
+    else if (on()) fly.lock();
+  };
+  document.getElementById("flybtn")!.addEventListener("click", toggleFly);
+  const hint = document.getElementById("hint")!;
   const move = new THREE.Vector3();
   return {
     refreshHover,
     /** Call every frame: moves the camera while flying and keeps the hover target current. */
     tick(dt: number) {
+      updateWand(dt);
+      hint.hidden = !on() || flying();
       if (!flying()) return;
       const speed = (keys.has("ControlLeft") ? 24 : 9) * dt;
       move.set(0, 0, 0);

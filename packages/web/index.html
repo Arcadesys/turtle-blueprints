@@ -41,6 +41,7 @@
   #crosshair { position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none; }
   #crosshair::before, #crosshair::after { content: ""; position: absolute; background: #fff; mix-blend-mode: difference; }
   #crosshair::before { left: 8px; top: 0; width: 2px; height: 18px; } #crosshair::after { top: 8px; left: 0; height: 2px; width: 18px; }
+  #hint { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); padding: 5px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: 12px; pointer-events: none; }
   #status { position: fixed; top: 12px; right: 14px; color: var(--muted); }
 </style>
 </head>
@@ -49,10 +50,12 @@
 <div id="crosshair" hidden></div>
 <div id="hotbar"></div>
 <div id="status"></div>
+<div id="hint">Wand ready: <b>right-click</b> place &middot; <b>left-click</b> break &middot; press <b>F</b> to fly around</div>
 <aside>
   <h1>Turtle Blueprints</h1>
   <select id="pick" aria-label="Blueprint"></select>
-  <div class="row"><button id="newbp">New blueprint</button><label class="chk"><input id="editing" type="checkbox" checked> Edit</label></div>
+  <div class="row"><button id="newbp">New blueprint</button><button id="flybtn" title="Walk around inside the build (F)">Fly mode (F)</button></div>
+  <div class="row"><label class="chk"><input id="editing" type="checkbox" checked> Edit</label></div>
   <div class="note">F fly &middot; left click break &middot; right click place &middot; middle click pick &middot; 1-9 hotbar &middot; Cmd/Ctrl+Z undo</div>
   <h2>Blocks</h2>
   <input id="search" type="search" placeholder="Search ATM10 blocks" aria-label="Search blocks">

@@ -58,6 +58,8 @@ TB_BLUEPRINTS=blueprints npm run dev -w @tb/web
 
 ## Editing by hand
 
+When editing is on you hold a wand: it glows in the selected block's colour and swings when you place or break. If no blueprint exists the viewer starts an empty `my-build`.
+
 Search any ATM10 block in the sidebar and click a result to put it in the selected hotbar slot (keys 1-9). Edits write straight to the blueprint file, so Claude and the viewer see each other's changes.
 
 | input | action |
@@ -66,7 +68,7 @@ Search any ATM10 block in the sidebar and click a result to put it in the select
 | left click | break |
 | middle click | pick the block under the cursor |
 | drag | orbit/pan as before; a click only counts if the mouse barely moved |
-| `F` | toggle fly mode: WASD, Space up, Shift down, Ctrl sprint, crosshair aims; Esc leaves |
+| `F` or the "Fly mode" button | toggle fly mode: WASD, Space up, Shift down, Ctrl sprint, crosshair aims; Esc leaves |
 | Cmd/Ctrl+Z, plus Shift | undo / redo |
 
 Slabs render at half height; stairs are approximated as half-height slabs, and other non-cube models as textured cubes. Blocks with custom or runtime textures (about 3,000 of 53,000) show a flat colour.
