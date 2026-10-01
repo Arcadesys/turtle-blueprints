@@ -18,7 +18,7 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 | `packages/cc-bridge` | exports cc-factory's layered text or blocks JSON, normalises to `layer:0`, finds a cc-binaries checkout, and `ccToWorld` (where cc-factory actually places a block) |
 | `packages/tester` | builds a turtlesim world from a blueprint, runs `factory.lua`, diffs placed blocks against the blueprint |
 | `packages/mcp` | stdio MCP server: `blueprint_new/apply/get/validate/export_cc/export_gadgets/list/manage/build_plan`, `test_run_build` |
-| `packages/web` | viewer and file manager: create, rename, duplicate, describe, archive/restore; layer slicer; build prep checklist and schema download; test report and missing/wrong overlay |
+| `packages/web` | viewer and file manager: create, rename, duplicate, describe, archive/restore; layer slicer; build prep checklist and schema download; test report and missing/wrong overlay; selector wand (copy, paste, delete, generate) |
 
 ## Setup
 
@@ -69,6 +69,30 @@ Blueprints export as Building Gadgets 2 templates, the JSON its Template Manager
 3. In survival the gadget takes the blocks from your inventory or linked storage, so gather from the Build prep list first.
 
 Unlike turtles, the gadget keeps blockstate (stairs facing, log axis). Two-block things such as doors and beds need both halves in the blueprint. Every cell of the bounding box is encoded, so very large builds make large templates; split them if a paste is slow or rejected.
+
+### Selector wand
+
+![Box selection of a monitor with the action wheel open](docs/screenshots/01-wand-wheel.jpg)
+
+The viewer has a selector wand (toggle with `Q`). Click a block to ping and select it, shift-click a second block to select the box between them, or click the ground to target an empty cell. Dragging still orbits. Each click opens an action wheel:
+
+| action | key | what it does |
+| --- | --- | --- |
+| Copy | `C` | copies the selected blocks (air is not copied) |
+| Paste | `V` | pastes onto the clicked face, or at the clicked ground cell |
+| Delete | `X` | clears the selected box |
+| New | `N` | saves the selected blocks as a new blueprint (moved so the box starts at 0,0,0), or starts an empty one when nothing is selected, then switches to it |
+| Generate | `G` | asks for a request in plain words, then runs headless Claude Code with only this MCP server: it edits the blueprint around the selection, validates it, exports a cc-factory schema to `blueprints/exports/`, and runs the turtle test. Progress and the result show in the sidebar. |
+
+Press `F` to walk, first person like Minecraft creative: WASD and the mouse to look. You start flying (Space/Shift rise and sink); double-tap Space to drop and walk with gravity (Space jumps, Shift sneaks), and double-tap again to fly. Landing on the ground ends a flight. Blocks you can see are solid; if you start inside one you can move out freely. The wand aims from the crosshair while walking: left click selects, right click grows the box, and with the wheel open you flick the mouse toward an action and click (the keys still work). With the cursor free (Esc or `E`, or if the browser refuses to capture the mouse) you keep walking, drag to look, and the wand aims at the cursor; `E` captures the mouse again. Generate frees the cursor so you can type.
+
+| | |
+| --- | --- |
+| ![Generate dialog with a plain-language request](docs/screenshots/02-generate.jpg) | ![New blueprint dialog saving a selection](docs/screenshots/03-new-blueprint.jpg) |
+
+![First-person walk mode: crosshair selection with the action wheel](docs/screenshots/04-walking.jpg)
+
+Paste and delete write the blueprint file directly. `Ctrl/Cmd+Z` undoes them, and undoes a whole Generate. Generate needs `claude` on the PATH (or set `TB_CLAUDE`), and passes `CC_BINARIES` through for the turtle test.
 
 ## Limits to know about
 

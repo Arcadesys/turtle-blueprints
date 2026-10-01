@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@tb/blueprint": "*",
+    "@tb/mcp": "*",
     "three": "^0.170.0",
     "@tb/tester": "*",
     "@tb/cc-bridge": "*"
