@@ -40,12 +40,11 @@
   #wheel, #wheelInfo { pointer-events: none; } #wheel button { pointer-events: auto; }
   #wheel button { position: absolute; width: 92px; margin: -16px 0 0 -46px; border-radius: 16px; white-space: nowrap; }
   #wheel button kbd { color: var(--muted); font-size: 11px; margin-left: 4px; }
-  #wheel [data-act=copy] { left: 50%; top: 17%; } #wheel [data-act=paste] { left: 78%; top: 50%; }
-  #wheel [data-act=delete] { left: 50%; top: 83%; } #wheel [data-act=generate] { left: 22%; top: 50%; }
   #wheelInfo { position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%); white-space: nowrap; font-size: 12px;
                padding: 2px 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); }
   dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; width: min(460px, calc(100vw - 32px)); }
   dialog::backdrop { background: #0005; }
+  dialog input { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
   dialog textarea { width: 100%; min-height: 90px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
   dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 10px 0 0; }
   #genStatus .steps { font-family: ui-monospace, monospace; font-size: 11px; overflow-wrap: anywhere; }
@@ -58,8 +57,9 @@
   <select id="pick" aria-label="Blueprint"></select>
   <h2>Selector wand</h2>
   <div class="row"><button id="wand" aria-pressed="true">Wand on <kbd>Q</kbd></button><button id="walk" aria-pressed="false">Walk <kbd>F</kbd></button></div>
+  <div id="walkPos" class="note walkhelp"></div>
   <div id="wandStatus" class="note">Click a block to select it, shift-click another to select the box between them, click the ground to target an empty cell. Drag to orbit. Undo with Ctrl/Cmd+Z.</div>
-  <div class="note walkhelp">Walking: WASD to move, Space/Shift to rise and sink, mouse to look. Left click selects at the crosshair, right click grows the box. With the wheel open, flick the mouse toward an action and click, or press its key. Esc or E frees the cursor: then drag to look and click to select, as in orbit view. E captures the mouse again.</div>
+  <div class="note walkhelp">Walk mode: WASD to move, mouse to look. Walking: Space jumps, Shift sneaks. Double-tap Space to fly or drop; flying, Space/Shift rise and sink, and touching the ground lands you. Left click selects at the crosshair, right click grows the box. With the wheel open, flick the mouse toward an action and click, or press its key. Esc or E frees the cursor: then drag to look and click to select, as in orbit view. E captures the mouse again.</div>
   <div id="genStatus" class="note"></div>
   <h2>Layers</h2>
   <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
@@ -76,6 +76,7 @@
   <button data-act="copy" role="menuitem">Copy<kbd>C</kbd></button>
   <button data-act="paste" role="menuitem">Paste<kbd>V</kbd></button>
   <button data-act="delete" role="menuitem">Delete<kbd>X</kbd></button>
+  <button data-act="new" role="menuitem">New<kbd>N</kbd></button>
   <button data-act="generate" role="menuitem">Generate<kbd>G</kbd></button>
   <div id="wheelInfo"></div>
 </div>
@@ -86,6 +87,15 @@
     <textarea id="genText" placeholder="e.g. a 2-block-wide spiral staircase up to the roof, in oak planks" aria-label="What to build"></textarea>
     <div class="note">Claude edits the blueprint with the MCP tools, exports a cc-factory schema and runs the turtle test.</div>
     <menu><button value="cancel">Cancel</button><button value="go" id="genGo">Generate</button></menu>
+  </form>
+</dialog>
+<dialog id="newbp">
+  <form method="dialog">
+    <h1>New blueprint</h1>
+    <div id="newWhat" class="note"></div>
+    <input id="newName" aria-label="Blueprint name" pattern="[A-Za-z0-9_\-]+" autocomplete="off" spellcheck="false">
+    <div class="note">Letters, digits, _ and - only.</div>
+    <menu><button value="cancel">Cancel</button><button value="go">Create</button></menu>
   </form>
 </dialog>
 <script type="module" src="/src/main.ts"></script>

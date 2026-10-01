@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyOps, newBlueprint } from "@tb/blueprint";
-import { boxOf, copy, deleteOps, generatePrompt, pasteOps, wheelSlice } from "./wand";
+import { WHEEL, boxOf, copy, deleteOps, extract, generatePrompt, pasteOps, wheelAngle, wheelSlice } from "./wand";
 
 const sample = () =>
   applyOps(newBlueprint("hut"), [
@@ -51,12 +51,25 @@ describe("selector wand", () => {
   });
 
   it("maps a mouse flick to the wheel slice it points at", () => {
+    // A flick toward each button's own position picks that button.
+    WHEEL.forEach((act, i) => {
+      const a = wheelAngle(i);
+      expect(wheelSlice(40 * Math.sin(a), -40 * Math.cos(a))).toBe(act);
+      expect(wheelSlice(40 * Math.sin(a + 0.5), -40 * Math.cos(a + 0.5))).toBe(act); // and a bit off to the side
+    });
     expect(wheelSlice(0, -40)).toBe("copy");
-    expect(wheelSlice(40, 0)).toBe("paste");
-    expect(wheelSlice(0, 40)).toBe("delete");
-    expect(wheelSlice(-40, 0)).toBe("generate");
-    expect(wheelSlice(-40, -1)).toBe("generate"); // just above left still counts as left
-    expect(wheelSlice(30, -25)).toBe("paste");
+    expect(wheelSlice(-3, -40)).toBe("copy"); // just left of up wraps to the first slice
     expect(wheelSlice(5, -5)).toBeNull();
+  });
+
+  it("extracts a selection as a new blueprint at the origin", () => {
+    const out = extract(sample(), boxOf([1, 0, 1], [2, 1, 2]), "piece");
+    expect(out.name).toBe("piece");
+    expect(out.description).toBe("from hut, 1,0,1 to 2,1,2");
+    expect(out.blocks).toEqual([
+      [0, 0, 0, "minecraft:stone"], [1, 0, 0, "minecraft:stone"],
+      [0, 0, 1, "minecraft:stone"], [1, 0, 1, "minecraft:stone"],
+      [0, 1, 0, "minecraft:glass"],
+    ]);
   });
 });

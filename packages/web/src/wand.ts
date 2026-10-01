@@ -2,7 +2,7 @@
  * Selector wand: the pure part. Selections are inclusive boxes in blueprint
  * coordinates; the clipboard stores blocks relative to the box's min corner.
  */
-import { materials, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
+import { applyOps, materials, newBlueprint, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
 
 export interface Box { min: Vec3; max: Vec3 }
 
@@ -44,14 +44,25 @@ export function deleteOps(box: Box): Op[] {
   return [{ op: "clear", from: box.min, to: box.max }];
 }
 
-/**
- * Which wheel action a mouse flick points at (screen y grows downward), or null inside
- * the dead zone. Copy is up, paste right, delete down, generate left, matching the layout.
- */
-export function wheelSlice(dx: number, dy: number, deadZone = 15): "copy" | "paste" | "delete" | "generate" | null {
+/** A new blueprint holding the box's blocks, shifted so the box's min corner is the origin. */
+export function extract(bp: Blueprint, box: Box, name: string): Blueprint {
+  const desc = `from ${bp.name}, ${box.min.join(",")} to ${box.max.join(",")}`;
+  return applyOps(newBlueprint(name, desc), pasteOps(copy(bp, box), [0, 0, 0]));
+}
+
+/** Wheel actions clockwise from the top; the page lays the buttons out in this order. */
+export const WHEEL = ["copy", "paste", "delete", "new", "generate"] as const;
+export type WheelAction = (typeof WHEEL)[number];
+
+/** Angle of slice i, clockwise from straight up, in radians. */
+export const wheelAngle = (i: number) => (i / WHEEL.length) * 2 * Math.PI;
+
+/** Which wheel action a mouse flick points at (screen y grows downward), or null inside the dead zone. */
+export function wheelSlice(dx: number, dy: number, deadZone = 15): WheelAction | null {
   if (Math.hypot(dx, dy) < deadZone) return null;
-  const i = (Math.round(Math.atan2(dy, dx) / (Math.PI / 2)) + 5) % 4;
-  return (["copy", "paste", "delete", "generate"] as const)[i]!;
+  const a = Math.atan2(dx, -dy); // 0 is up, clockwise positive
+  const i = Math.round(a / wheelAngle(1)) % WHEEL.length;
+  return WHEEL[(i + WHEEL.length) % WHEEL.length]!;
 }
 
 const fmt = (v: Vec3) => `[${v.join(", ")}]`;
