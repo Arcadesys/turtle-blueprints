@@ -58,3 +58,32 @@ describe.skipIf(!existsSync("/Applications/CraftOS-PC.app") || !existsSync(`${cc
     expect(out).toMatch(/^PASS: built \d+ of \d+/);
   }, 150_000);
 });
+
+describe("file management tools", () => {
+  it("lists, manages and plans", async () => {
+    const { listTool, manageTool, planTool } = await import("./tools");
+    const s = fresh();
+    newTool(s, { name: "wall", description: "test wall" });
+    applyTool(s, { name: "wall", ops: [{ op: "fill", from: [0, 0, 0], to: [69, 0, 0], block: "minecraft:cobblestone" }] });
+    expect(listTool(s)).toContain("wall: 70 blocks, 70x1x1 - test wall");
+    expect(planTool(s, { name: "wall" })).toContain("minecraft:cobblestone: 70 (1 x 64 + 6)");
+    manageTool(s, { action: "duplicate", name: "wall", to: "wall2" });
+    manageTool(s, { action: "archive", name: "wall" });
+    expect(listTool(s)).toContain("archived: wall");
+    expect(() => manageTool(s, { action: "rename", name: "wall2" })).toThrow(/needs to/);
+  });
+});
+
+describe("gadgets export tool", () => {
+  it("writes a template file", async () => {
+    const { gadgetsTool } = await import("./tools");
+    const { readFileSync } = await import("node:fs");
+    const s = fresh();
+    newTool(s, { name: "g" });
+    applyTool(s, { name: "g", ops: [{ op: "set", at: [0, 0, 0], block: "minecraft:stone" }] });
+    const out = gadgetsTool(s, { name: "g" });
+    expect(out).toContain("exports/g.bg2.json");
+    const t = JSON.parse(readFileSync(join(s.dir, "exports", "g.bg2.json"), "utf8"));
+    expect(t.statePosArrayList).toContain("statelist:[I;1]");
+  });
+});

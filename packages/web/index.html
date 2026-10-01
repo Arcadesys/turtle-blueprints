@@ -24,11 +24,33 @@
   label.chk { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
   .note { color: var(--muted); font-size: 12px; margin-top: 6px; }
   .name { overflow-wrap: anywhere; }
-  button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  button { font: inherit; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  #files li { padding: 6px 8px; border-radius: 6px; cursor: pointer; flex-direction: column; align-items: stretch; gap: 0; }
+  #files li:hover { background: #8881; }
+  #files li[aria-selected=true] { background: #8882; }
+  #files .meta { color: var(--muted); font-size: 12px; }
+  #files .t { display: flex; gap: 6px; align-items: baseline; }
+  #files .tag { margin-left: auto; font-size: 11px; color: var(--muted); }
+  #form { display: none; margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  #form.open { display: block; }
+  #form input[type=text] { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; margin-top: 4px; }
+  #form label { font-size: 12px; color: var(--muted); display: block; margin-top: 6px; }
+  .err { color: #c8402c; font-size: 12px; margin-top: 6px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  details li { justify-content: space-between; }
+  .meter { height: 8px; border-radius: 4px; background: #8883; overflow: hidden; margin: 4px 0; }
+  .meter > div { height: 100%; background: #2f8f4e; }
+  .meter.over > div { background: #c8402c; }
+  #mats li input { margin: 0; }
+  #mats li.got .name { text-decoration: line-through; color: var(--muted); }
+  #issues li { display: block; font-size: 12px; }
+  #issues .error { color: #c8402c; } #issues .warning { color: #b07300; }
   button[aria-pressed=true] { background: #3a6fd8; border-color: #3a6fd8; color: #fff; }
-  button:disabled { opacity: .4; cursor: default; }
   #view.wand canvas { cursor: crosshair; }
-  .row { display: flex; gap: 6px; }
   .walkhelp, #crosshair { display: none; }
   body.walking .walkhelp { display: block; }
   body.walking.locked #crosshair { display: block; position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none;
@@ -54,7 +76,23 @@
 <div id="view"></div>
 <aside>
   <h1>Turtle Blueprints</h1>
-  <select id="pick" aria-label="Blueprint"></select>
+  <h2>Blueprints</h2>
+  <ul id="files" role="listbox" aria-label="Blueprints"></ul>
+  <div class="row">
+    <button id="bNew" class="primary">New</button>
+    <button id="bRename">Rename</button>
+    <button id="bDup">Duplicate</button>
+    <button id="bDesc">Describe</button>
+    <button id="bArchive">Archive</button>
+  </div>
+  <form id="form">
+    <div id="formTitle"></div>
+    <label id="nameLabel">Name (letters, digits, _ and -)<input id="fName" type="text" autocomplete="off" pattern="[A-Za-z0-9_\-]+"></label>
+    <label id="descLabel">Description (optional)<input id="fDesc" type="text" autocomplete="off"></label>
+    <div id="formErr" class="err"></div>
+    <div class="row"><button type="submit" class="primary">Save</button><button type="button" id="fCancel">Cancel</button></div>
+  </form>
+  <details id="archivedBox"><summary>Archived (<span id="archivedN">0</span>)</summary><ul id="archived"></ul></details>
   <h2>Selector wand</h2>
   <div class="row"><button id="wand" aria-pressed="true">Wand on <kbd>Q</kbd></button><button id="walk" aria-pressed="false">Walk <kbd>F</kbd></button></div>
   <div id="walkPos" class="note walkhelp"></div>
@@ -64,8 +102,18 @@
   <h2>Layers</h2>
   <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
   <div id="sliceLabel" class="note"></div>
-  <h2>Materials</h2>
+  <h2>Build prep</h2>
+  <div id="slots" class="note"></div>
+  <div id="meter" class="meter"><div></div></div>
   <ul id="mats"></ul>
+  <ul id="issues"></ul>
+  <div class="row">
+    <button id="bExport">Download schema</button>
+    <button id="bCopy">Copy checklist</button>
+    <button id="bGadgets">Copy for Building Gadgets</button>
+  </div>
+  <div class="note">Building Gadgets: open a Template Manager with a Copy-Paste Gadget (or paper) in it and press Paste.</div>
+  <div class="note">Turtle: put the schema on the turtle and run <code>factory &lt;file&gt;</code>. Tick items off as you gather them; ticks are saved in this browser.</div>
   <h2>Turtle test</h2>
   <div id="report" class="note">No test run yet. Ask Claude to run test_run_build.</div>
   <label class="chk"><input id="ghosts" type="checkbox" checked> Show missing / wrong blocks</label>

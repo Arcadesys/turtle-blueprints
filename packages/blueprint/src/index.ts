@@ -200,3 +200,28 @@ export function renderLayer(bp: Blueprint, y: number, symbols: Map<string, strin
   }
   return rows;
 }
+
+export const TURTLE_SLOTS = 16;
+export const STACK = 64;
+
+export interface BuildPlan {
+  /** Material list with full stacks and leftovers, most first. */
+  materials: Array<{ block: string; count: number; stacks: number; extra: number; slots: number }>;
+  total: number;
+  /** Inventory slots needed to carry everything at once. */
+  slots: number;
+  fitsInTurtle: boolean;
+  issues: Issue[];
+}
+
+/** What to gather before a build, and whether it fits in one turtle load. Assumes 64-stacks. */
+export function buildPlan(bp: Blueprint): BuildPlan {
+  const mats = materials(bp).map((m) => ({
+    ...m,
+    stacks: Math.floor(m.count / STACK),
+    extra: m.count % STACK,
+    slots: Math.ceil(m.count / STACK),
+  }));
+  const slots = mats.reduce((n, m) => n + m.slots, 0);
+  return { materials: mats, total: bp.blocks.length, slots, fitsInTurtle: slots <= TURTLE_SLOTS, issues: validate(bp) };
+}
