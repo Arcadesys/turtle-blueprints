@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { baseId, materials, type Blueprint } from "@tb/blueprint";
+import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
+import { baseId, materials, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
+import { blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelSlice, type Box, type Clip } from "./wand";
 
 // Shape of the /api/blueprint response; the report is computed server-side by @tb/tester.
 interface Report {
@@ -27,6 +29,7 @@ scene.add(sun);
 const grid = new THREE.GridHelper(64, 64, 0x888888, 0xbbbbbb);
 (grid.material as THREE.Material).opacity = 0.35;
 (grid.material as THREE.Material).transparent = true;
+grid.position.y = -0.5;
 scene.add(grid);
 
 function resize() {
@@ -65,6 +68,7 @@ function render() {
   for (const [id, cells] of byBlock) {
     const mesh = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({ color: colorOf(id) }), cells.length);
     cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x, y, z)));
+    mesh.userData.cells = cells; // lets the wand map a hit instance back to its block
     group.add(mesh);
   }
   if (report && $<HTMLInputElement>("ghosts").checked) {
@@ -154,7 +158,7 @@ async function refreshList() {
   }
   if (!names.length) $("sliceLabel").textContent = "No blueprints yet. Ask Claude to run blueprint_new.";
 }
-pick.addEventListener("change", () => { framed = ""; void load(pick.value, true); });
+pick.addEventListener("change", () => { framed = ""; undo.length = 0; select(null, null); void load(pick.value, true); });
 $("slice").addEventListener("input", () => { sidebar(); render(); });
 $("ghosts").addEventListener("change", render);
 
@@ -162,7 +166,315 @@ $("ghosts").addEventListener("change", render);
 setInterval(() => { void refreshList().then(async () => { if (pick.value) await load(pick.value); }); }, 1500);
 void refreshList();
 
+// --- Walk mode -----------------------------------------------------------
+// First-person creative flight: WASD moves, Space/Shift rise and sink.
+// Mouse captured (pointer lock): the mouse looks, the wand aims from the crosshair, and the
+// mouse steers the wheel while it is open. Cursor free (Esc or E, or the browser refused
+// capture): drag to look, and the wand aims at the cursor as in orbit view.
+
+const look = new PointerLockControls(camera, renderer.domElement);
+let walking = false;
+const held = new Set<string>();
+const clock = new THREE.Clock();
+const locked = () => look.isLocked;
+// Not look.lock(): it leaves the promise unhandled when the browser refuses (pointerlockerror covers that).
+const capture = () => { void Promise.resolve(renderer.domElement.requestPointerLock()).catch(() => {}); };
+
+function setWalk(on: boolean) {
+  walking = on;
+  held.clear();
+  controls.enabled = !on;
+  $("walk").setAttribute("aria-pressed", String(on));
+  $("walk").firstChild!.textContent = on ? "Walking " : "Walk ";
+  document.body.classList.toggle("walking", on);
+  closeWheel();
+  if (on) capture();
+  else {
+    if (locked()) look.unlock();
+    // Hand the view back to orbit, pivoting a few blocks ahead of where we stood.
+    controls.target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(8));
+  }
+}
+look.addEventListener("lock", () => { document.body.classList.add("locked"); });
+look.addEventListener("unlock", () => { document.body.classList.remove("locked"); look.pointerSpeed = 1; });
+document.addEventListener("pointerlockerror", () => {
+  if (walking) status("The browser would not capture the mouse. Keep walking: drag to look, click to select.");
+});
+
+const euler = new THREE.Euler(0, 0, 0, "YXZ");
+function dragLook(dx: number, dy: number) {
+  euler.setFromQuaternion(camera.quaternion);
+  euler.y -= dx * 0.004;
+  euler.x = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, euler.x - dy * 0.004));
+  camera.quaternion.setFromEuler(euler);
+}
+
+function walkStep(dt: number) {
+  if (!walking) return;
+  const speed = 8 * dt;
+  const f = Number(held.has("w")) - Number(held.has("s"));
+  const r = Number(held.has("d")) - Number(held.has("a"));
+  if (f) look.moveForward(f * speed);
+  if (r) look.moveRight(r * speed);
+  camera.position.y += (Number(held.has(" ")) - Number(held.has("shift"))) * speed;
+}
+
+// --- Selector wand -------------------------------------------------------
+// Click to ping and select, shift-click (or right-click while walking) to grow a box,
+// then act from the wheel.
+
+let wandOn = true;
+let anchor: Vec3 | null = null;
+let sel: Box | null = null;
+/** Where a paste lands: the empty cell on the clicked face, or the clicked ground cell. */
+let target: Vec3 | null = null;
+let clip: Clip | null = null;
+const undo: Blueprint[] = [];
+const wandLayer = new THREE.Group();
+scene.add(wandLayer);
+const wheel = $("wheel");
+const status = (t: string) => { $("wandStatus").textContent = t; };
+
+function outline(box: Box, color: number, pad = 0.04) {
+  const size = boxSize(box);
+  const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(size[0] + pad, size[1] + pad, size[2] + pad));
+  const line = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color, transparent: true }));
+  line.position.set((box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2);
+  return line;
+}
+
+let ping: { line: THREE.LineSegments; t0: number } | null = null;
+function select(box: Box | null, at: Vec3 | null, pinged?: Vec3) {
+  sel = box;
+  target = at;
+  wandLayer.clear();
+  if (sel) wandLayer.add(outline(sel, 0x3a6fd8));
+  if (target) {
+    const t = outline(boxOf(target, target), 0x2f8f4e, -0.1);
+    (t.material as THREE.LineBasicMaterial).opacity = 0.7;
+    wandLayer.add(t);
+  }
+  ping = pinged ? { line: outline(boxOf(pinged, pinged), 0xffffff), t0: performance.now() } : null;
+  if (ping) wandLayer.add(ping.line);
+}
+
+const ray = new THREE.Raycaster();
+const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+/** Ray from the pointer, or from the crosshair while the pointer is locked for walking. */
+function pickAt(e: PointerEvent, extend: boolean) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(locked()
+    ? new THREE.Vector2(0, 0)
+    : new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+  const hit = ray.intersectObjects(group.children.filter((o) => o.userData.cells), false)[0];
+  if (hit && hit.instanceId !== undefined && hit.face) {
+    const cell = (hit.object.userData.cells as Vec3[])[hit.instanceId]!;
+    const n = hit.face.normal;
+    const box = extend && anchor ? boxOf(anchor, cell) : boxOf(cell, cell);
+    if (!extend || !anchor) anchor = cell;
+    select(box, [cell[0] + Math.round(n.x), cell[1] + Math.round(n.y), cell[2] + Math.round(n.z)], cell);
+    return true;
+  }
+  ground.constant = -(grid.position.y);
+  const p = ray.ray.intersectPlane(ground, new THREE.Vector3());
+  if (!p) return false;
+  const cell: Vec3 = [Math.round(p.x), Math.round(grid.position.y + 0.5), Math.round(p.z)];
+  anchor = null;
+  select(null, cell, cell);
+  return true;
+}
+
+function openWheel(x: number, y: number) {
+  const bp = current?.blueprint;
+  const n = bp && sel ? blocksIn(bp, sel).length : 0;
+  const can: Record<string, boolean> = { copy: n > 0, delete: n > 0, paste: !!clip && !!target, generate: !!bp };
+  wheel.querySelectorAll<HTMLButtonElement>("button").forEach((b) => { b.disabled = !can[b.dataset.act!]; });
+  $("wheelInfo").textContent = sel ? `${boxSize(sel).join("×")} · ${n} block${n === 1 ? "" : "s"}` : target ? `empty cell ${target.join(", ")}` : "";
+  wheel.style.left = `${Math.min(Math.max(x, 125), innerWidth - 125)}px`;
+  wheel.style.top = `${Math.min(Math.max(y, 125), innerHeight - 150)}px`;
+  wheel.classList.add("open");
+  steer.set(0, 0);
+  hot(null);
+  if (locked()) look.pointerSpeed = 0; // the mouse steers the wheel instead of the view
+  else wheel.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+}
+function closeWheel() {
+  wheel.classList.remove("open");
+  look.pointerSpeed = 1;
+}
+
+// Under pointer lock there is no cursor, so mouse movement picks a wheel slice, like a game radial menu.
+const steer = new THREE.Vector2();
+function hot(what: string | null) {
+  wheel.querySelectorAll<HTMLButtonElement>("button").forEach((b) => b.classList.toggle("hot", b.dataset.act === what));
+}
+const hotAct = () => wheel.querySelector<HTMLButtonElement>("button.hot")?.dataset.act ?? null;
+document.addEventListener("mousemove", (e) => {
+  if (!locked() || !wheel.classList.contains("open")) return;
+  steer.x += e.movementX;
+  steer.y += e.movementY;
+  if (steer.length() > 60) steer.setLength(60);
+  const what = wheelSlice(steer.x, steer.y);
+  hot(what && !wheel.querySelector<HTMLButtonElement>(`[data-act=${what}]`)?.disabled ? what : null);
+});
+
+async function edit(ops: Op[], done: string) {
+  if (!current) return;
+  const name = current.blueprint.name;
+  const before = structuredClone(current.blueprint);
+  const res = await fetch(`/api/blueprint/${encodeURIComponent(name)}/ops`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ops }),
+  });
+  const out = (await res.json()) as { error?: string; issues?: Array<{ level: string; message: string }> };
+  if (!res.ok) return status(`Failed: ${out.error}`);
+  undo.push(before);
+  const errors = (out.issues ?? []).filter((i) => i.level === "error");
+  status(done + (errors.length ? ` (${errors.length} validation error${errors.length > 1 ? "s" : ""}: ${errors[0]!.message})` : ""));
+  await load(name, true);
+}
+
+async function act(what: string) {
+  const btn = wheel.querySelector<HTMLButtonElement>(`[data-act=${what}]`);
+  if (!wheel.classList.contains("open") || !btn || btn.disabled || !current) return;
+  closeWheel();
+  const bp = current.blueprint;
+  if (what === "copy" && sel) {
+    clip = copy(bp, sel);
+    status(`Copied ${clip.blocks.length} blocks (${clip.size.join("×")}). Click where to paste.`);
+  } else if (what === "paste" && clip && target) {
+    await edit(pasteOps(clip, target), `Pasted ${clip.blocks.length} blocks at ${target.join(", ")}.`);
+  } else if (what === "delete" && sel) {
+    const n = blocksIn(bp, sel).length;
+    await edit(deleteOps(sel), `Deleted ${n} block${n === 1 ? "" : "s"}.`);
+    select(null, null);
+  } else if (what === "generate") {
+    if (locked()) look.unlock(); // typing the request needs a cursor; E captures the mouse again
+    $("genWhere").textContent = sel
+      ? `In ${bp.name}, the box ${sel.min.join(",")} to ${sel.max.join(",")} (${boxSize(sel).join("×")}).`
+      : target ? `In ${bp.name}, starting at the empty cell ${target.join(", ")}.` : `In ${bp.name}.`;
+    $<HTMLDialogElement>("gen").showModal();
+    $<HTMLTextAreaElement>("genText").focus();
+  }
+}
+
+async function generate(request: string) {
+  if (!current) return;
+  const name = current.blueprint.name;
+  const before = structuredClone(current.blueprint);
+  const res = await fetch("/api/generate", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, request, box: sel, target }),
+  });
+  const out = (await res.json()) as { id?: string; error?: string };
+  const box = $("genStatus");
+  if (!out.id) { box.textContent = `Generate failed: ${out.error}`; return; }
+  undo.push(before); // Ctrl/Cmd+Z puts back the design from before this generate
+  const poll = async () => {
+    const job = (await (await fetch(`/api/generate/${out.id}`)).json()) as { status: string; steps: string[]; result: string };
+    const head = document.createElement("div");
+    head.className = job.status === "done" ? "pass" : job.status === "failed" ? "fail" : "";
+    head.textContent = job.status === "running" ? `Generating in ${name}…` : job.status === "done" ? "Generated" : "Generate failed";
+    const steps = document.createElement("div");
+    steps.className = "steps";
+    steps.textContent = job.steps.join(" → ");
+    const result = document.createElement("div");
+    result.textContent = job.result;
+    box.replaceChildren(head, steps, result);
+    if (job.status === "running") setTimeout(() => void poll(), 1500);
+  };
+  void poll();
+}
+
+$<HTMLDialogElement>("gen").addEventListener("close", () => {
+  const text = $<HTMLTextAreaElement>("genText");
+  if ($<HTMLDialogElement>("gen").returnValue === "go" && text.value.trim()) {
+    void generate(text.value);
+    text.value = "";
+  }
+});
+$("genText").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $<HTMLDialogElement>("gen").close("go");
+});
+
+wheel.addEventListener("click", (e) => {
+  const act_ = (e.target as HTMLElement).closest<HTMLButtonElement>("button")?.dataset.act;
+  if (act_) void act(act_);
+});
+
+function setWand(on: boolean) {
+  wandOn = on;
+  $("wand").setAttribute("aria-pressed", String(on));
+  $("wand").firstChild!.textContent = on ? "Wand on " : "Wand off ";
+  if (!on) hot(null);
+  $("view").classList.toggle("wand", on);
+  if (!on) { closeWheel(); select(null, null); }
+}
+$("wand").addEventListener("click", () => setWand(!wandOn));
+setWand(true);
+
+$("walk").addEventListener("click", () => setWalk(!walking));
+
+// A click (not an orbit drag) with the wand pings a block and opens the wheel.
+// Walking: left click selects from the crosshair (or confirms the steered wheel slice),
+// right click grows the box, like a WorldEdit wand.
+let down: { x: number; y: number; button: number } | null = null;
+renderer.domElement.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, button: e.button }; });
+renderer.domElement.addEventListener("contextmenu", (e) => { if (walking) e.preventDefault(); });
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (walking && !locked() && down?.button === 0) dragLook(e.movementX, e.movementY);
+});
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!down || down.button !== e.button) return;
+  const moved = locked() ? 0 : Math.hypot(e.clientX - down.x, e.clientY - down.y);
+  down = null;
+  if (moved > 5) return;
+  if (locked() && e.button === 0 && wheel.classList.contains("open") && hotAct()) return void act(hotAct()!);
+  const extend = walking ? e.button === 2 : e.button === 0 && e.shiftKey;
+  if (!wandOn || (e.button !== 0 && !extend)) return;
+  if (pickAt(e, extend)) openWheel(locked() ? innerWidth / 2 : e.clientX, locked() ? innerHeight / 2 : e.clientY);
+  else { closeWheel(); select(null, null); }
+});
+
+async function undoLast() {
+  const prev = undo.pop();
+  if (!prev) return status("Nothing to undo.");
+  const res = await fetch(`/api/blueprint/${encodeURIComponent(prev.name)}`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ blueprint: prev }),
+  });
+  status(res.ok ? "Undone." : "Undo failed.");
+  await load(prev.name, true);
+}
+
+const MOVE = new Set(["w", "a", "s", "d", " ", "shift"]);
+addEventListener("keyup", (e) => { held.delete(e.key.toLowerCase()); });
+addEventListener("blur", () => held.clear());
+addEventListener("keydown", (e) => {
+  if (e.target instanceof Element && e.target.closest("textarea, input, select, dialog")) return;
+  if (walking && MOVE.has(e.key.toLowerCase())) {
+    held.add(e.key.toLowerCase());
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "z" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void undoLast(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "escape") { closeWheel(); select(null, null); anchor = null; }
+  else if (k === "q") setWand(!wandOn);
+  else if (k === "f") setWalk(!walking);
+  else if (k === "e" && walking) { closeWheel(); if (locked()) look.unlock(); else capture(); }
+  else if (wheel.classList.contains("open")) {
+    const map: Record<string, string> = { c: "copy", v: "paste", x: "delete", delete: "delete", backspace: "delete", g: "generate" };
+    if (map[k]) { e.preventDefault(); void act(map[k]); }
+  }
+});
+
 renderer.setAnimationLoop(() => {
-  controls.update();
+  walkStep(Math.min(clock.getDelta(), 0.1));
+  if (ping) {
+    const t = (performance.now() - ping.t0) / 450;
+    if (t >= 1) { wandLayer.remove(ping.line); ping = null; }
+    else { ping.line.scale.setScalar(1 + t * 0.8); (ping.line.material as THREE.LineBasicMaterial).opacity = 1 - t; }
+  }
+  if (!walking) controls.update();
   renderer.render(scene, camera);
 });
