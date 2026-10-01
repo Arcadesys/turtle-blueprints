@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import { baseId, materials, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
-import { blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelSlice, type Box, type Clip } from "./wand";
+import { EYE, stepPlayer } from "./walk";
+import { WHEEL, blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelAngle, wheelSlice, type Box, type Clip } from "./wand";
 
 // Shape of the /api/blueprint response; the report is computed server-side by @tb/tester.
 interface Report {
@@ -51,6 +52,8 @@ const unit = new THREE.BoxGeometry(1, 1, 1);
 const group = new THREE.Group();
 scene.add(group);
 let current: Payload | null = null;
+/** Cells the walking player collides with: the blocks currently shown. */
+let solidCells = new Set<string>();
 let framed = "";
 
 function render() {
@@ -59,6 +62,7 @@ function render() {
   const { blueprint: bp, report } = current;
   const maxY = Number($<HTMLInputElement>("slice").value);
   const shown = bp.blocks.filter((b) => b[1] <= maxY);
+  solidCells = new Set(shown.map((b) => `${b[0]},${b[1]},${b[2]}`));
   const byBlock = new Map<string, Array<[number, number, number]>>();
   for (const [x, y, z, b] of shown) {
     const id = baseId(b);
@@ -156,9 +160,12 @@ async function refreshList() {
     if (names.includes(keep)) pick.value = keep;
     if (names.length) await load(pick.value, true);
   }
-  if (!names.length) $("sliceLabel").textContent = "No blueprints yet. Ask Claude to run blueprint_new.";
+  if (!names.length) $("sliceLabel").textContent = "No blueprints yet. Click the ground and choose New, or ask Claude to run blueprint_new.";
 }
-pick.addEventListener("change", () => { framed = ""; undo.length = 0; select(null, null); void load(pick.value, true); });
+pick.addEventListener("change", () => {
+  pick.blur(); // otherwise the focused select swallows the wand, walk and wheel keys
+  framed = ""; undo.length = 0; select(null, null); void load(pick.value, true);
+});
 $("slice").addEventListener("input", () => { sidebar(); render(); });
 $("ghosts").addEventListener("change", render);
 
@@ -167,13 +174,19 @@ setInterval(() => { void refreshList().then(async () => { if (pick.value) await 
 void refreshList();
 
 // --- Walk mode -----------------------------------------------------------
-// First-person creative flight: WASD moves, Space/Shift rise and sink.
+// First person, like Minecraft creative: WASD moves. Walking has gravity, Space jumps and
+// Shift sneaks; double-tap Space to fly, where Space/Shift rise and sink and touching the
+// ground lands you. Blocks are solid either way.
 // Mouse captured (pointer lock): the mouse looks, the wand aims from the crosshair, and the
 // mouse steers the wheel while it is open. Cursor free (Esc or E, or the browser refused
 // capture): drag to look, and the wand aims at the cursor as in orbit view.
 
 const look = new PointerLockControls(camera, renderer.domElement);
 let walking = false;
+let flying = true; // walk mode starts in the air, where the orbit camera was
+let vy = 0;
+let onGround = false;
+let lastSpace = 0;
 const held = new Set<string>();
 const clock = new THREE.Clock();
 const locked = () => look.isLocked;
@@ -185,7 +198,8 @@ function setWalk(on: boolean) {
   held.clear();
   controls.enabled = !on;
   $("walk").setAttribute("aria-pressed", String(on));
-  $("walk").firstChild!.textContent = on ? "Walking " : "Walk ";
+  if (on) { flying = true; vy = 0; }
+  walkLabel();
   document.body.classList.toggle("walking", on);
   closeWheel();
   if (on) capture();
@@ -209,14 +223,35 @@ function dragLook(dx: number, dy: number) {
   camera.quaternion.setFromEuler(euler);
 }
 
+function walkLabel() {
+  $("walk").firstChild!.textContent = !walking ? "Walk " : flying ? "Flying " : "Walking ";
+}
+function setFly(on: boolean) {
+  flying = on;
+  vy = 0;
+  walkLabel();
+  status(on ? "Flying: Space and Shift rise and sink. Double-tap Space to drop." : "Walking: Space jumps, Shift sneaks. Double-tap Space to fly.");
+}
+
+const solid = (x: number, y: number, z: number) => solidCells.has(`${x},${y},${z}`);
+const fwd = new THREE.Vector3();
 function walkStep(dt: number) {
   if (!walking) return;
-  const speed = 8 * dt;
-  const f = Number(held.has("w")) - Number(held.has("s"));
-  const r = Number(held.has("d")) - Number(held.has("a"));
-  if (f) look.moveForward(f * speed);
-  if (r) look.moveRight(r * speed);
-  camera.position.y += (Number(held.has(" ")) - Number(held.has("shift"))) * speed;
+  camera.getWorldDirection(fwd);
+  const p = camera.position;
+  const out = stepPlayer({ feet: [p.x, p.y - EYE, p.z], vy, flying, onGround }, {
+    facing: fwd.x || fwd.z ? [fwd.x, fwd.z] : [0, -1],
+    forward: Number(held.has("w")) - Number(held.has("s")),
+    right: Number(held.has("d")) - Number(held.has("a")),
+    up: held.has(" "),
+    down: held.has("shift"),
+  }, dt, solid, grid.position.y);
+  p.set(out.feet[0], out.feet[1] + EYE, out.feet[2]);
+  vy = out.vy;
+  onGround = out.onGround;
+  if (flying && !out.flying) setFly(false); // landing ends flight
+  const pos = `feet at ${out.feet.map((n) => n.toFixed(1)).join(", ")}${flying ? " · flying" : onGround ? " · on ground" : " · falling"}`;
+  if ($("walkPos").textContent !== pos) $("walkPos").textContent = pos;
 }
 
 // --- Selector wand -------------------------------------------------------
@@ -263,6 +298,7 @@ const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 /** Ray from the pointer, or from the crosshair while the pointer is locked for walking. */
 function pickAt(e: PointerEvent, extend: boolean) {
   const r = renderer.domElement.getBoundingClientRect();
+  camera.updateMatrixWorld(); // mouse look may have turned the camera since the last frame was drawn
   ray.setFromCamera(locked()
     ? new THREE.Vector2(0, 0)
     : new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
@@ -287,7 +323,7 @@ function pickAt(e: PointerEvent, extend: boolean) {
 function openWheel(x: number, y: number) {
   const bp = current?.blueprint;
   const n = bp && sel ? blocksIn(bp, sel).length : 0;
-  const can: Record<string, boolean> = { copy: n > 0, delete: n > 0, paste: !!clip && !!target, generate: !!bp };
+  const can: Record<string, boolean> = { copy: n > 0, delete: n > 0, paste: !!clip && !!target, generate: !!bp, new: true };
   wheel.querySelectorAll<HTMLButtonElement>("button").forEach((b) => { b.disabled = !can[b.dataset.act!]; });
   $("wheelInfo").textContent = sel ? `${boxSize(sel).join("×")} · ${n} block${n === 1 ? "" : "s"}` : target ? `empty cell ${target.join(", ")}` : "";
   wheel.style.left = `${Math.min(Math.max(x, 125), innerWidth - 125)}px`;
@@ -335,8 +371,10 @@ async function edit(ops: Op[], done: string) {
 
 async function act(what: string) {
   const btn = wheel.querySelector<HTMLButtonElement>(`[data-act=${what}]`);
-  if (!wheel.classList.contains("open") || !btn || btn.disabled || !current) return;
+  if (!wheel.classList.contains("open") || !btn || btn.disabled) return;
   closeWheel();
+  if (what === "new") return openNew();
+  if (!current) return;
   const bp = current.blueprint;
   if (what === "copy" && sel) {
     clip = copy(bp, sel);
@@ -396,6 +434,59 @@ $("genText").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $<HTMLDialogElement>("gen").close("go");
 });
 
+// Lay the buttons out around the ring in WHEEL order, matching wheelSlice.
+WHEEL.forEach((act_, i) => {
+  const b = wheel.querySelector<HTMLButtonElement>(`[data-act=${act_}]`)!;
+  b.style.left = `${50 + 34 * Math.sin(wheelAngle(i))}%`;
+  b.style.top = `${50 - 34 * Math.cos(wheelAngle(i))}%`;
+});
+
+// New blueprint: the selected blocks moved to the origin, or empty when nothing is selected.
+function openNew() {
+  const bp = current?.blueprint;
+  const n = bp && sel ? blocksIn(bp, sel).length : 0;
+  if (locked()) look.unlock(); // naming it needs a cursor
+  $("newWhat").textContent = bp && sel && n
+    ? `Saves the ${n} selected block${n === 1 ? "" : "s"} (${boxSize(sel).join("×")}) from ${bp.name} as a new blueprint, moved so the box starts at 0,0,0.`
+    : "Starts an empty blueprint.";
+  const taken = new Set(Array.from(pick.options, (o) => o.value));
+  const stem = bp && sel && n ? `${bp.name}-part` : "blueprint";
+  let name = stem;
+  for (let i = 2; taken.has(name); i++) name = `${stem}-${i}`;
+  const input = $<HTMLInputElement>("newName");
+  input.value = name;
+  $<HTMLDialogElement>("newbp").showModal();
+  input.select();
+}
+
+async function createNew(name: string) {
+  const bp = current?.blueprint;
+  const from = bp && sel && blocksIn(bp, sel).length ? { name: bp.name, box: sel } : undefined;
+  const res = await fetch("/api/new", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, from }),
+  });
+  const out = (await res.json()) as { name?: string; blocks?: number; error?: string };
+  if (!res.ok || !out.name) return status(`New blueprint failed: ${out.error}`);
+  await refreshList();
+  pick.value = out.name;
+  framed = "";
+  undo.length = 0;
+  select(null, null);
+  anchor = null;
+  await load(out.name, true);
+  status(out.blocks ? `Created ${out.name} with ${out.blocks} blocks.` : `Created ${out.name}. Click the ground and Paste or Generate to fill it.`);
+}
+
+$<HTMLDialogElement>("newbp").addEventListener("close", () => {
+  const input = $<HTMLInputElement>("newName");
+  if ($<HTMLDialogElement>("newbp").returnValue !== "go") return;
+  if (!/^[A-Za-z0-9_-]+$/.test(input.value)) return status("Blueprint names use letters, digits, _ and - only.");
+  void createNew(input.value);
+});
+$("newName").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); $<HTMLDialogElement>("newbp").close("go"); }
+});
+
 wheel.addEventListener("click", (e) => {
   const act_ = (e.target as HTMLElement).closest<HTMLButtonElement>("button")?.dataset.act;
   if (act_) void act(act_);
@@ -451,6 +542,11 @@ addEventListener("blur", () => held.clear());
 addEventListener("keydown", (e) => {
   if (e.target instanceof Element && e.target.closest("textarea, input, select, dialog")) return;
   if (walking && MOVE.has(e.key.toLowerCase())) {
+    if (e.key === " " && !e.repeat) {
+      // Double-tap Space toggles flight, as in Minecraft creative.
+      const now = performance.now();
+      if (now - lastSpace < 300) { setFly(!flying); lastSpace = 0; } else lastSpace = now;
+    }
     held.add(e.key.toLowerCase());
     e.preventDefault();
     return;
@@ -463,7 +559,7 @@ addEventListener("keydown", (e) => {
   else if (k === "f") setWalk(!walking);
   else if (k === "e" && walking) { closeWheel(); if (locked()) look.unlock(); else capture(); }
   else if (wheel.classList.contains("open")) {
-    const map: Record<string, string> = { c: "copy", v: "paste", x: "delete", delete: "delete", backspace: "delete", g: "generate" };
+    const map: Record<string, string> = { c: "copy", v: "paste", x: "delete", delete: "delete", backspace: "delete", n: "new", g: "generate" };
     if (map[k]) { e.preventDefault(); void act(map[k]); }
   }
 });

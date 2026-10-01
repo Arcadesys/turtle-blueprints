@@ -5,10 +5,10 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
-import { applyOps, validate, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
+import { applyOps, newBlueprint, validate, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
 import { Store } from "@tb/mcp";
 import { diffBuild, type TurtleSummary } from "@tb/tester";
-import { generatePrompt, type Box } from "./src/wand";
+import { extract, generatePrompt, type Box } from "./src/wand";
 
 const dir = resolve(process.env.TB_BLUEPRINTS ?? "../../blueprints");
 const store = new Store(dir);
@@ -104,6 +104,16 @@ function blueprintApi(): Plugin {
             const next = applyOps(store.load(ops[1]!), b.ops);
             store.save(next);
             json({ issues: validate(next) });
+          }).catch(fail);
+          return;
+        }
+        // New blueprint from the wheel: empty, or the selected box of another blueprint.
+        if (url.pathname === "/new" && req.method === "POST") {
+          void body<{ name: string; from?: { name: string; box: Box } }>(req).then((b) => {
+            if (existsSync(store.path(b.name))) throw new Error(`"${b.name}" already exists`);
+            const bp = b.from ? extract(store.load(b.from.name), b.from.box, b.name) : newBlueprint(b.name);
+            store.save(bp);
+            json({ name: bp.name, blocks: bp.blocks.length });
           }).catch(fail);
           return;
         }
