@@ -162,7 +162,10 @@ async function refreshList() {
   }
   if (!names.length) $("sliceLabel").textContent = "No blueprints yet. Click the ground and choose New, or ask Claude to run blueprint_new.";
 }
-pick.addEventListener("change", () => { framed = ""; undo.length = 0; select(null, null); void load(pick.value, true); });
+pick.addEventListener("change", () => {
+  pick.blur(); // otherwise the focused select swallows the wand, walk and wheel keys
+  framed = ""; undo.length = 0; select(null, null); void load(pick.value, true);
+});
 $("slice").addEventListener("input", () => { sidebar(); render(); });
 $("ghosts").addEventListener("change", render);
 
@@ -295,6 +298,7 @@ const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 /** Ray from the pointer, or from the crosshair while the pointer is locked for walking. */
 function pickAt(e: PointerEvent, extend: boolean) {
   const r = renderer.domElement.getBoundingClientRect();
+  camera.updateMatrixWorld(); // mouse look may have turned the camera since the last frame was drawn
   ray.setFromCamera(locked()
     ? new THREE.Vector2(0, 0)
     : new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
