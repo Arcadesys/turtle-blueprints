@@ -15,7 +15,7 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 | package | what it does |
 | --- | --- |
 | `packages/blueprint` | sparse voxel model, namespaced block ids (`mod:block[state]`), `set`/`fill`/`clear` ops, validation, material counts, build plan (64-stacks, turtle slots); `@tb/blueprint/store` reads and manages the files; `@tb/blueprint/gadgets` exports Building Gadgets 2 templates |
-| `packages/cc-bridge` | exports cc-factory's layered text or blocks JSON, normalises to `layer:0`, finds a cc-binaries checkout, and `ccToWorld` (where cc-factory actually places a block) |
+| `packages/cc-bridge` | exports the turtle schema (a Building Gadgets 2 template, which cc-factory reads), normalises to `layer:0`, finds a cc-binaries checkout, and `ccToWorld` (where cc-factory actually places a block) |
 | `packages/tester` | builds a turtlesim world from a blueprint, runs `factory.lua`, diffs placed blocks against the blueprint |
 | `packages/mcp` | stdio MCP server: `blueprint_new/apply/get/validate/export_cc/export_gadgets/list/manage/build_plan`, `test_run_build` |
 | `packages/assets` | `npm run assets`: builds a block catalog and texture cache from your local ATM10 install (jars, not committed), with each block's light level read from the game and mod code |
@@ -86,12 +86,12 @@ Each blueprint is `blueprints/<name>.blueprint.json`. From the viewer or Claude 
 
 1. Open the blueprint in the viewer and check **Build prep**: every material in 64-stacks and how many of the turtle's 16 slots the build needs. Fix any warnings (blocks a turtle cannot place).
 2. Tick materials off as you gather them (ticks are kept in your browser), or **Copy checklist** to paste somewhere else. Claude's `blueprint_build_plan` gives the same list.
-3. **Download schema** saves the cc-factory file (`<name>.txt`, or `.json` for very large palettes). Copy it onto the turtle, for example into `saves/<world>/computercraft/computer/<id>/`, and run `factory <name>.txt`.
+3. **Download schema** saves `<name>.json`, a Building Gadgets 2 template: the same file pastes into a Template Manager and builds on a turtle. Copy it onto the turtle, for example into `saves/<world>/computercraft/computer/<id>/`, and run `factory <name>.json`. A turtle's disk holds 1 MB by default and a template encodes every cell of the bounding box (air too), so the export warns when a build is too big; split it or raise `computer_space_limit` in the CC:Tweaked server config.
 4. Load the turtle with the materials and fuel. cc-factory builds behind-left of the turtle, mirrored left to right (see below).
 
 ### With Building Gadgets 2 (All the Mods 10)
 
-Blueprints export as Building Gadgets 2 templates, the JSON its Template Manager copies and pastes.
+Blueprints export as Building Gadgets 2 templates, the JSON its Template Manager copies and pastes. It is the same file turtles build from, and cc-factory also builds templates copied out of the game.
 
 1. In the viewer press **Copy for Building Gadgets** (or ask Claude for `blueprint_export_gadgets`, which writes `blueprints/exports/<name>.bg2.json`; copy that file's contents).
 2. In game, open a Template Manager, put your Copy-Paste Gadget (or a template or paper) in it, and press **Paste**. The gadget now holds the build; place it like any copy.

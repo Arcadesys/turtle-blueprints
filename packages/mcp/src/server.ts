@@ -92,7 +92,7 @@ server.registerTool(
 server.registerTool(
   "blueprint_export_cc",
   {
-    description: "Export to a cc-factory schema (layered text, or blocks JSON when there are too many materials). Writes outPath if given.",
+    description: "Export the schema a turtle builds from: a Building Gadgets 2 template, which cc-factory reads and BG2's Template Manager pastes. Writes outPath (use .json) if given.",
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => exportTool(store, a))(),
@@ -103,7 +103,7 @@ server.registerTool(
   {
     description:
       "Export as a Building Gadgets 2 template (the JSON the Template Manager pastes from the clipboard). Keeps blockstate. " +
-      "Writes outPath, default <blueprints>/exports/<name>.bg2.json.",
+      "Writes outPath, default <blueprints>/exports/<name>.bg2.json. The same file is what turtles build from (blueprint_export_cc).",
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => gadgetsTool(store, a))(),

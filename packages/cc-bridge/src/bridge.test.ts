@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyOps, newBlueprint } from "@tb/blueprint";
-import { ccToWorld, normalise, toBlocksJson, toLayeredText } from "./index";
+import { ccToWorld, exportSchema, normalise, TURTLE_DISK_BYTES } from "./index";
 
 // Same shape as the 5x5 spike run through turtlesim.
 const spike = applyOps(newBlueprint("spike"), [
@@ -18,46 +18,31 @@ describe("normalise", () => {
   });
 });
 
-describe("toLayeredText", () => {
-  it("emits a legend, layer:N headers and rectangular rows", () => {
-    const out = toLayeredText(spike);
-    expect(out.text).toContain("legend:");
-    expect(out.text).toContain("layer:0");
-    expect(out.text).toContain("layer:1");
-    expect(Object.values(out.legend).sort()).toEqual(["minecraft:glass", "minecraft:stone_bricks"]);
-    const sym = Object.entries(out.legend).find(([, v]) => v === "minecraft:stone_bricks")?.[0] as string;
-    const layer0 = out.text.split("layer:0\n")[1]!.split("\n\n")[0]!.split("\n");
-    expect(layer0).toEqual(Array(5).fill(sym.repeat(5)));
+describe("exportSchema", () => {
+  it("is the Building Gadgets 2 template, cells relative to the minimum corner", () => {
+    const t = JSON.parse(exportSchema(spike).text);
+    expect(t.name).toBe("spike");
+    expect(t.statePosArrayList).toContain("startpos:{X:0,Y:0,Z:0}");
+    expect(t.statePosArrayList).toContain("endpos:{X:4,Y:1,Z:4}");
+    expect(t.requiredItems).toEqual({ "minecraft:stone_bricks": 41, "minecraft:glass": 1 });
   });
 
-  it("puts the glass at the centre of layer 1 and air inside the ring", () => {
-    const out = toLayeredText(spike);
-    const g = Object.entries(out.legend).find(([, v]) => v === "minecraft:glass")?.[0] as string;
-    const s = Object.entries(out.legend).find(([, v]) => v === "minecraft:stone_bricks")?.[0] as string;
-    const layer1 = out.text.split("layer:1\n")[1]!.trim().split("\n");
-    expect(layer1).toEqual([s.repeat(5), `${s}...${s}`, `${s}.${g}.${s}`, `${s}...${s}`, s.repeat(5)]);
-  });
-
-  it("refuses more materials than symbols", () => {
-    let bp = newBlueprint("big");
-    const ops = Array.from({ length: 80 }, (_, i) => ({ op: "set" as const, at: [i, 0, 0] as [number, number, number], block: `mod:block_${i}` }));
-    bp = applyOps(bp, ops);
-    expect(() => toLayeredText(bp)).toThrow(/toBlocksJson/);
-  });
-
-  it("warns about blockstate", () => {
+  it("keeps blockstate and warns that turtles ignore it", () => {
     const bp = applyOps(newBlueprint("s"), [{ op: "set", at: [0, 0, 0], block: "minecraft:oak_stairs[facing=north]" }]);
-    expect(toLayeredText(bp).warnings).toHaveLength(1);
+    const out = exportSchema(bp);
+    expect(out.text).toContain('Properties:{facing:\\"north\\"}');
+    expect(out.warnings).toEqual([expect.stringMatching(/blockstate/)]);
+    expect(exportSchema(spike).warnings).toEqual([]);
   });
-});
 
-describe("toBlocksJson", () => {
-  it("strips blockstate into meta", () => {
-    const bp = applyOps(newBlueprint("s"), [{ op: "set", at: [3, 2, 1], block: "minecraft:oak_stairs[facing=north,half=top]" }]);
-    const parsed = JSON.parse(toBlocksJson(bp).text);
-    expect(parsed.blocks).toEqual([
-      { x: 0, y: 0, z: 0, material: "minecraft:oak_stairs", meta: { state: { facing: "north", half: "top" } } },
+  it("warns when the template will not fit on a turtle's disk", () => {
+    // Two corners make a 100x100x100 box, and every cell of it is encoded.
+    const big = applyOps(newBlueprint("big"), [
+      { op: "set", at: [0, 0, 0], block: "minecraft:stone" },
+      { op: "set", at: [99, 99, 99], block: "minecraft:stone" },
     ]);
+    expect(exportSchema(big).text.length).toBeGreaterThan(TURTLE_DISK_BYTES);
+    expect(exportSchema(big).warnings).toEqual([expect.stringMatching(/1 MB disk/)]);
   });
 });
 

@@ -64,9 +64,9 @@ export function exportTool(store: Store, a: { name: string; outPath?: string }):
     const p = resolve(a.outPath);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, out.text);
-    return [`wrote ${out.format} to ${p}`, ...warn].join("\n");
+    return [`wrote Building Gadgets 2 template to ${p}`, ...warn].join("\n");
   }
-  return [`${out.format}:`, out.text, ...warn].join("\n");
+  return [out.text, ...warn].join("\n");
 }
 
 export async function testTool(store: Store, a: { name: string; timeoutSec?: number; ccBinaries?: string }): Promise<string> {

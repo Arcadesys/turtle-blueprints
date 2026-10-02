@@ -38,7 +38,7 @@ describe("mcp tools", () => {
     newTool(s, { name: "b" });
     applyTool(s, { name: "b", ops: [{ op: "set", at: [0, 0, 0], block: "minecraft:oak_door" }] });
     expect(validateTool(s, { name: "b" })).toContain("warning:");
-    expect(exportTool(s, { name: "b" })).toContain("legend:");
+    expect(JSON.parse(exportTool(s, { name: "b" }).split("\nwarning:")[0]!).statePosArrayList).toContain("minecraft:oak_door");
   });
 });
 
