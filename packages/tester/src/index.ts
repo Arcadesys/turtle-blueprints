@@ -121,7 +121,7 @@ export async function runBuildTest(bp: Blueprint, opts: RunOptions = {}): Promis
   mkdirSync(work, { recursive: true });
 
   const schema = exportSchema(bp);
-  const file = schema.format === "layered-text" ? "blueprint.txt" : "blueprint.json";
+  const file = "blueprint.json";
   const schemaPath = join(work, file);
   writeFileSync(schemaPath, schema.text);
   const worldPath = join(work, "world.lua");

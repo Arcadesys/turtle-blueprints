@@ -188,8 +188,8 @@ export function createApi(opts: ApiOptions): { api: Handler; textures: Handler }
         if (ex) {
           const name = ex[1] as string;
           const out = exportSchema(s.load(name));
-          const file = `${name}.${out.format === "layered-text" ? "txt" : "json"}`;
-          res.setHeader("content-type", "text/plain; charset=utf-8");
+          const file = `${name}.json`;
+          res.setHeader("content-type", "application/json; charset=utf-8");
           res.setHeader("content-disposition", `attachment; filename="${file}"`);
           return res.end(out.text);
         }
