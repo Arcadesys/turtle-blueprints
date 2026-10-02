@@ -41,8 +41,11 @@ export interface CatalogEntry {
   v: Record<string, Variant>;
 }
 
+/** Bumped when the extractor starts writing something older catalogs lack (2: light levels). */
+export const CATALOG_VERSION = 2;
+
 export interface Catalog {
-  version: 1;
+  version: number;
   /** Texture ids as "namespace:path" (file at textures/<namespace>/<path>.png). */
   textures: string[];
   /** Texture index -> animation frame count, when more than one. */
