@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { LightVolume } from "./lighting";
 import { baseId } from "@tb/blueprint";
 import { pickVariant, type WireBlocks, type WireEntry, type WireVariant } from "@tb/blueprint/editor";
 
@@ -73,6 +74,105 @@ export function variantOf(block: string): WireVariant | undefined {
   return e ? pickVariant(e, block) : undefined;
 }
 
+// --- Minecraft lighting ----------------------------------------------------
+// Blocks are unlit materials whose colour is multiplied, per fragment, the way the game does:
+// lightmap(block light, sky light) x face shade x ambient occlusion. Light levels come from a
+// 3D texture of the cells around the build (see lighting.ts), sampled one half block out from
+// the face. Nearest filtering gives flat lighting; linear filtering gives Smooth Lighting, with
+// solid cells darkening corners as Minecraft's AO does.
+
+const lightmapTex = new THREE.DataTexture(new Uint8Array(16 * 16 * 4).fill(255), 16, 16);
+lightmapTex.magFilter = lightmapTex.minFilter = THREE.LinearFilter;
+lightmapTex.needsUpdate = true;
+let volumeTex = new THREE.Data3DTexture(new Uint8Array([0, 255, 255, 255]), 1, 1, 1);
+const shared = {
+  uLightVol: { value: volumeTex },
+  uLightmap: { value: lightmapTex },
+  uLightOrigin: { value: new THREE.Vector3() },
+  uLightSize: { value: new THREE.Vector3(1, 1, 1) },
+  uSmooth: { value: 1 },
+};
+
+/** Upload the 16x16 lightmap (RGB 0-1, [sky * 16 + block]). */
+export function setLightmap(rgb: Float32Array) {
+  const d = lightmapTex.image.data as Uint8Array;
+  for (let i = 0; i < 256; i++) {
+    d[i * 4] = Math.round(rgb[i * 3]! * 255);
+    d[i * 4 + 1] = Math.round(rgb[i * 3 + 1]! * 255);
+    d[i * 4 + 2] = Math.round(rgb[i * 3 + 2]! * 255);
+  }
+  lightmapTex.needsUpdate = true;
+}
+
+/** Upload the light volume from computeLight. */
+export function setLightVolume(v: LightVolume) {
+  const [w, h, d] = v.size;
+  if (volumeTex.image.width !== w || volumeTex.image.height !== h || volumeTex.image.depth !== d) {
+    volumeTex.dispose();
+    volumeTex = new THREE.Data3DTexture(v.data, w, h, d);
+    shared.uLightVol.value = volumeTex;
+  } else volumeTex.image.data = v.data;
+  volumeTex.magFilter = volumeTex.minFilter = shared.uSmooth.value ? THREE.LinearFilter : THREE.NearestFilter;
+  volumeTex.needsUpdate = true;
+  shared.uLightOrigin.value.set(...v.origin);
+  shared.uLightSize.value.set(w, h, d);
+}
+
+export function setSmoothLighting(on: boolean) {
+  shared.uSmooth.value = on ? 1 : 0;
+  volumeTex.magFilter = volumeTex.minFilter = on ? THREE.LinearFilter : THREE.NearestFilter;
+  volumeTex.needsUpdate = true;
+}
+
+/** Make a basic material lit like a Minecraft block; `emit` is the block's own light level. */
+function minecraftLit<M extends THREE.MeshBasicMaterial>(m: M, emit: number): M {
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, shared, { uEmit: { value: emit / 15 } });
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vLightPos;\nvarying vec3 vLightN;")
+      .replace("#include <project_vertex>", `#include <project_vertex>
+        vec4 lightPos = vec4(transformed, 1.0);
+        vec3 lightN = normal;
+        #ifdef USE_INSTANCING
+          lightPos = instanceMatrix * lightPos;
+          lightN = mat3(instanceMatrix) * lightN;
+        #endif
+        vLightPos = (modelMatrix * lightPos).xyz;
+        vLightN = mat3(modelMatrix) * lightN;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>
+        precision highp sampler3D;
+        uniform sampler3D uLightVol;
+        uniform sampler2D uLightmap;
+        uniform vec3 uLightOrigin;
+        uniform vec3 uLightSize;
+        uniform float uSmooth;
+        uniform float uEmit;
+        varying vec3 vLightPos;
+        varying vec3 vLightN;
+        vec3 minecraftLight() {
+          vec3 n = normalize(vLightN);
+          vec3 a = abs(n);
+          // ClientLevel.getShade: up 1.0, down 0.5, north/south 0.8, east/west 0.6
+          float shade = a.y > 0.5 ? (n.y > 0.0 ? 1.0 : 0.5) : (a.z > a.x ? 0.8 : 0.6);
+          vec4 s = texture(uLightVol, (vLightPos + n * 0.5 - uLightOrigin + 0.5) / uLightSize);
+          // R and G are light levels with solid cells counted as 0; dividing by B (the share of
+          // open cells) averages over the open ones only, as smooth lighting does.
+          float open = s.b;
+          float blockL = open > 0.01 ? min(s.r / open, 1.0) : 0.0;
+          float skyL = open > 0.01 ? min(s.g / open, 1.0) : 0.0;
+          blockL = max(blockL, uEmit);
+          float ao = mix(1.0, s.a, uSmooth);
+          vec3 lm = texture(uLightmap, (vec2(blockL, skyL) * 15.0 + 0.5) / 16.0).rgb;
+          // The game multiplies sRGB texture colours; here colours are linear, so decode the factor.
+          return pow(lm * shade * ao, vec3(2.2));
+        }`)
+      .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb *= minecraftLight();");
+  };
+  m.customProgramCacheKey = () => "minecraft-lit";
+  return m;
+}
+
 const materials = new Map<string, THREE.Material[] | THREE.Material>();
 
 /** Textured materials for a block, or a flat hash colour when the catalog has no texture for it. */
@@ -80,15 +180,23 @@ export function materialsFor(block: string): THREE.Material[] | THREE.Material {
   const cached = materials.get(block);
   if (cached) return cached;
   const v = variantOf(block);
+  const emit = v?.l ?? 0;
   let m: THREE.Material[] | THREE.Material;
   if (v && v.f.some((f) => f)) {
     const fallback = v.f.find((f) => f) as string;
-    m = THREE_TO_CATALOG.map((ci) => new THREE.MeshLambertMaterial({ map: texture(v.f[ci] ?? fallback), transparent: true, alphaTest: 0.1 }));
+    m = THREE_TO_CATALOG.map((ci) => minecraftLit(new THREE.MeshBasicMaterial({ map: texture(v.f[ci] ?? fallback), transparent: true, alphaTest: 0.1 }), emit));
   } else {
-    m = new THREE.MeshLambertMaterial({ color: hashColor(block) });
+    m = minecraftLit(new THREE.MeshBasicMaterial({ color: hashColor(block) }), emit);
   }
   materials.set(block, m);
   return m;
+}
+
+/** What the light pass needs for a block: does it stop light, and how much does it give off. */
+export function lightOf(block: string): { opaque: boolean; emit: number } {
+  const v = variantOf(block);
+  // Without a catalog entry, treat it as an ordinary solid block.
+  return { opaque: !v || (!v.t && !v.s), emit: v?.l ?? 0 };
 }
 
 /** Forget cached materials for blocks that rendered as plain colour, once real entries arrive. */

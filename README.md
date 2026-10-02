@@ -18,8 +18,8 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 | `packages/cc-bridge` | exports cc-factory's layered text or blocks JSON, normalises to `layer:0`, finds a cc-binaries checkout, and `ccToWorld` (where cc-factory actually places a block) |
 | `packages/tester` | builds a turtlesim world from a blueprint, runs `factory.lua`, diffs placed blocks against the blueprint |
 | `packages/mcp` | stdio MCP server: `blueprint_new/apply/get/validate/export_cc/export_gadgets/list/manage/build_plan`, `test_run_build` |
-| `packages/assets` | `npm run assets`: builds a block catalog and texture cache from your local ATM10 install (jars, not committed) |
-| `packages/web` | viewer and file manager: create, rename, duplicate, describe, archive/restore; layer slicer; build prep checklist and schema download; test report and missing/wrong overlay; selector wand (copy, paste, delete, generate) |
+| `packages/assets` | `npm run assets`: builds a block catalog and texture cache from your local ATM10 install (jars, not committed), with each block's light level read from the game and mod code |
+| `packages/web` | viewer and file manager: create, rename, duplicate, describe, archive/restore; layer slicer; Minecraft lighting with time of day; build prep checklist and schema download; test report and missing/wrong overlay; selector wand (copy, paste, delete, generate) |
 
 ## Setup
 
@@ -49,6 +49,8 @@ Build the block catalog and textures once (reads your CurseForge ATM10 instance 
 ```bash
 npm run assets
 ```
+
+Light levels are not in resource packs; they are in code. The extractor reads them from the deobfuscated client NeoForge installs (`libraries/net/neoforged/neoforge/<v>/neoforge-<v>-client.jar` and `libraries/net/minecraft/client/<v>/client-<v>-srg.jar`; override with `MC_CODE_JARS`, colon-separated) and from each mod jar: it follows every block's `Properties.lightLevel(...)` and `noOcclusion()`, and runs the light function for each blockstate, so a lit furnace is 13 and an unlit one 0, and four lit candles are 12. It also records the overworld's `ambient_light`, the plains sky colour, and your Brightness and Smooth Lighting from the instance's `options.txt`.
 
 View the blueprints (reloads as files change):
 
@@ -82,6 +84,10 @@ Unlike turtles, the gadget keeps blockstate (stairs facing, log axis). Two-block
 Search any ATM10 block in the sidebar and click a result to put it in the selected hotbar slot (keys 1-9). Press `B` (or the Build button; it swaps with the wand) and build by hand: right click places on the clicked face, left click breaks, middle click picks the block under the cursor. Placement follows Minecraft: stairs and furnaces face you, stairs take top or bottom from where you click, logs take the clicked axis, and two slabs merge into a double. It works from orbit view and, while walking, from the crosshair. Undo is the same Ctrl/Cmd+Z as the wand's.
 
 Blocks are drawn with their real textures from your local install. Slabs render at half height and stairs as half-height slabs; other non-cube models are textured cubes, and about 3,000 of the 53,000 blocks with custom textures show a flat colour.
+
+### Lighting
+
+The viewer lights blocks the way Minecraft 1.21.1 does. Sky light falls straight down and block light spreads from torches, lamps and other light blocks, both losing one level per block. Each face takes the light of the cell in front of it through the game's lightmap: warm torchlight, blue moonlight, and your Brightness setting. Faces are shaded as in game (top 1.0, north/south 0.8, east/west 0.6, bottom 0.5). The **Lighting** slider sets the time of day (`/time set` values; the sky colour follows), and **Smooth lighting** blends light across faces and darkens corners the way Minecraft's smooth lighting and ambient occlusion do. The lightmap, face shading and day cycle are ported from the client's `LightTexture`, `ClientLevel` and `DimensionType`. The light-level numbers come from your install (see Setup). Light is worked out for the layers shown, so slicing opens a building to the sky.
 
 ### Selector wand
 

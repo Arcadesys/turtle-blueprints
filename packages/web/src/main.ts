@@ -4,7 +4,9 @@ import { PointerLockControls } from "three/examples/jsm/controls/PointerLockCont
 import { baseId, buildPlan, TURTLE_SLOTS, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
 import { toGadgetsJson } from "@tb/blueprint/gadgets";
 import { EYE, HALF_WIDTH, HEIGHT, stepPlayer } from "./walk";
-import { dropFallbackMaterials, ensureBlocks, geometryFor, materialsFor, rotationFor, variantOf, type Shape } from "./textures";
+import { dropFallbackMaterials, ensureBlocks, geometryFor, lightOf, materialsFor, rotationFor, setLightmap, setLightVolume, setSmoothLighting, variantOf, type Shape } from "./textures";
+import { computeLight, lightmap, skyColor, skyDarken } from "./lighting";
+import { DEFAULT_LIGHT_ENV, type LightEnv } from "@tb/blueprint/editor";
 import { initPalette, selectSlot } from "./palette";
 import { createBuilder } from "./build";
 import { WHEEL, blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelAngle, wheelSlice, type Box, type Clip } from "./wand";
@@ -28,10 +30,6 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 1.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.4);
-sun.position.set(30, 60, 20);
-scene.add(sun);
 const grid = new THREE.GridHelper(64, 64, 0x888888, 0xbbbbbb);
 (grid.material as THREE.Material).opacity = 0.35;
 (grid.material as THREE.Material).transparent = true;
@@ -42,10 +40,56 @@ function resize() {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setClearColor(matchMedia("(prefers-color-scheme: dark)").matches ? 0x161715 : 0xf4f4f2);
 }
 addEventListener("resize", resize);
 resize();
+
+// --- Lighting --------------------------------------------------------------
+// Minecraft's own lighting (see lighting.ts): the time of day drives the lightmap and the sky,
+// and the world settings (ambient light, sky colour, Brightness, Smooth Lighting) come from the
+// extracted game files. Time and the smooth toggle are per-browser preferences.
+let env: LightEnv = DEFAULT_LIGHT_ENV;
+const LIGHT_KEY = "tb.lighting";
+function savedLighting(): { time?: number; smooth?: boolean } {
+  try { return JSON.parse(localStorage.getItem(LIGHT_KEY) ?? "{}") as { time?: number; smooth?: boolean }; } catch { return {}; }
+}
+function saveLighting() {
+  try { localStorage.setItem(LIGHT_KEY, JSON.stringify({ time: Number($<HTMLInputElement>("time").value), smooth: $<HTMLInputElement>("smooth").checked })); } catch { /* ignore */ }
+}
+const clock24 = (t: number) => {
+  const mins = Math.round((((t / 1000 + 6) % 24) * 60));
+  return `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+};
+function applyTime() {
+  const t = Number($<HTMLInputElement>("time").value);
+  setLightmap(lightmap(env, t));
+  const [r, g, b] = skyColor(env, t);
+  renderer.setClearColor(new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace));
+  (grid.material as THREE.Material).opacity = 0.35 * skyDarken(t); // the floor grid fades with the daylight
+  $("timeLabel").textContent = `${clock24(t)} · /time set ${t}`;
+}
+function applySmooth() {
+  setSmoothLighting($<HTMLInputElement>("smooth").checked);
+}
+{
+  const saved = savedLighting();
+  if (typeof saved.time === "number") $<HTMLInputElement>("time").value = String(saved.time);
+  if (typeof saved.smooth === "boolean") $<HTMLInputElement>("smooth").checked = saved.smooth;
+  applyTime();
+  applySmooth();
+  void fetch("/api/blocks/env").then((r) => r.json()).then((e: LightEnv) => {
+    env = { ...DEFAULT_LIGHT_ENV, ...e };
+    if (typeof savedLighting().smooth !== "boolean") $<HTMLInputElement>("smooth").checked = env.smooth;
+    $("lightNote").textContent = `From your game: Brightness ${Math.round(env.gamma * 100)}%, ambient light ${env.ambient}, plains sky. Torches and other light blocks use their in-game levels.`;
+    applyTime();
+    applySmooth();
+  }).catch(() => { /* keep the defaults */ });
+}
+$("time").addEventListener("input", () => { applyTime(); saveLighting(); });
+$("smooth").addEventListener("change", () => { applySmooth(); saveLighting(); });
+for (const [id, t] of [["tNoon", 6000], ["tSunset", 12500], ["tNight", 18000]] as const) {
+  $(id).addEventListener("click", () => { $<HTMLInputElement>("time").value = String(t); applyTime(); saveLighting(); });
+}
 
 const colorOf = (block: string): THREE.Color => {
   let h = 0;
@@ -72,6 +116,7 @@ function render() {
   const shown = bp.blocks.filter((b) => b[1] <= maxY);
   solidCells = new Set(shown.map((b) => `${b[0]},${b[1]},${b[2]}`));
   cellBlocks = new Map(shown.map((b) => [`${b[0]},${b[1]},${b[2]}`, b[3]]));
+  setLightVolume(computeLight(shown.map(([x, y, z, b]) => [x, y, z, lightOf(b)] as const), grid.position.y));
   // Group by full block id (state included) so each orientation gets its own textured mesh.
   const byBlock = new Map<string, Array<[number, number, number]>>();
   for (const [x, y, z, b] of shown) (byBlock.get(b) ?? byBlock.set(b, []).get(b)!).push([x, y, z]);

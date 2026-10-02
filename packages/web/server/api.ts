@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { searchCatalog, toWire, type Catalog } from "@tb/blueprint/editor";
+import { DEFAULT_LIGHT_ENV, searchCatalog, toWire, type Catalog } from "@tb/blueprint/editor";
 
 const assetsDir = resolve(process.env.TB_ASSETS ?? "../../.assets");
 
@@ -30,12 +30,13 @@ export function serveTexture(req: IncomingMessage, res: ServerResponse, next: Ne
 /** Block search and lookup over the catalog. Other /api routes belong to vite.config.ts. */
 export function serveBlocks(req: IncomingMessage, res: ServerResponse, next: Next) {
   const url = new URL(req.url ?? "/", "http://x");
-  if (url.pathname !== "/blocks" && url.pathname !== "/blocks/lookup") return next();
+  if (url.pathname !== "/blocks" && url.pathname !== "/blocks/lookup" && url.pathname !== "/blocks/env") return next();
   const json = (v: unknown) => {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify(v));
   };
   const cat = loadCatalog();
+  if (url.pathname === "/blocks/env") return json(cat?.env ?? DEFAULT_LIGHT_ENV);
   if (!cat) return json({ error: "no catalog: run `npm run assets`", blocks: {}, frames: {}, order: [] });
   if (url.pathname === "/blocks") {
     const hits = searchCatalog(cat.blocks, url.searchParams.get("q") ?? "", Number(url.searchParams.get("limit") ?? 60));
