@@ -8,7 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p .",
-    "assets": "tsx packages/assets/src/extract.ts"
+    "assets": "tsx packages/assets/src/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
