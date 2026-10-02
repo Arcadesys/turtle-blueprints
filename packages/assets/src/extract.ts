@@ -5,7 +5,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 import type { Catalog, CatalogEntry, Faces, Variant } from "@tb/blueprint/editor";
 
@@ -254,24 +254,34 @@ export function writeAssets(src: Sources, outDir: string): { blocks: number; tex
   return { blocks: Object.keys(catalog.blocks).length, textures: catalog.textures.length };
 }
 
-function main() {
-  const instance = resolve(process.env.ATM10_INSTANCE ?? join(homedir(), "Documents/curseforge/minecraft/Instances/All the Mods 10 - ATM10"));
-  const clientJar = resolve(process.env.MC_CLIENT_JAR ?? join(homedir(), "Documents/curseforge/minecraft/Install/versions/1.21.1/1.21.1.jar"));
-  const out = resolve(process.env.TB_ASSETS ?? ".assets");
-  for (const p of [instance, clientJar]) if (!existsSync(p)) throw new Error(`not found: ${p} (set ATM10_INSTANCE / MC_CLIENT_JAR)`);
-  const src = newSources();
-  console.log("vanilla", clientJar);
-  addJar(src, () => readFileSync(clientJar));
-  const mods = join(instance, "mods");
-  const jars = readdirSync(mods).filter((f) => f.endsWith(".jar")).sort();
-  jars.forEach((j, i) => {
-    process.stdout.write(`\r[${i + 1}/${jars.length}] ${j.slice(0, 60).padEnd(60)}`);
-    try { addJar(src, () => readFileSync(join(mods, j))); } catch (e) { console.warn(`\nskipped ${j}: ${(e as Error).message}`); }
-  });
-  addDir(src, join(instance, "kubejs", "assets"));
-  console.log("\nbuilding catalog...");
-  const r = writeAssets(src, out);
-  console.log(`wrote ${r.blocks} blocks and ${r.textures} textures to ${out}`);
+/** Where CurseForge and the vanilla launcher usually keep ATM10 and the 1.21.1 client jar on this OS. */
+export function defaultPaths(home = homedir(), platform = process.platform, env = process.env): { instance: string[]; clientJar: string[] } {
+  const curseforge = platform === "win32" ? [join(home, "curseforge", "minecraft"), join(home, "Documents", "curseforge", "minecraft")] : [join(home, "Documents", "curseforge", "minecraft")];
+  const vanilla =
+    platform === "win32" ? join(env.APPDATA ?? join(home, "AppData", "Roaming"), ".minecraft")
+    : platform === "darwin" ? join(home, "Library", "Application Support", "minecraft")
+    : join(home, ".minecraft");
+  return {
+    instance: curseforge.map((c) => join(c, "Instances", "All the Mods 10 - ATM10")),
+    clientJar: [...curseforge.map((c) => join(c, "Install", "versions", "1.21.1", "1.21.1.jar")), join(vanilla, "versions", "1.21.1", "1.21.1.jar")],
+  };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+/** Read the client jar, the instance's mods and kubejs/assets, and write the catalog and textures to `out`. */
+export function buildAssets(a: { instance: string; clientJar: string; out: string; progress?: (msg: string, done?: number, total?: number) => void }) {
+  const say = a.progress ?? (() => {});
+  for (const p of [a.instance, a.clientJar]) if (!existsSync(p)) throw new Error(`not found: ${p}`);
+  const mods = join(a.instance, "mods");
+  if (!existsSync(mods)) throw new Error(`no mods folder in ${a.instance}: pick the ATM10 instance folder`);
+  const src = newSources();
+  say(`vanilla ${a.clientJar}`);
+  addJar(src, () => readFileSync(a.clientJar));
+  const jars = readdirSync(mods).filter((f) => f.endsWith(".jar")).sort();
+  jars.forEach((j, i) => {
+    say(j, i + 1, jars.length);
+    try { addJar(src, () => readFileSync(join(mods, j))); } catch (e) { say(`skipped ${j}: ${(e as Error).message}`); }
+  });
+  addDir(src, join(a.instance, "kubejs", "assets"));
+  say("building catalog...");
+  return writeAssets(src, a.out);
+}

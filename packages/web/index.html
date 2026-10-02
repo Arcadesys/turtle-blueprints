@@ -81,7 +81,32 @@
   dialog input { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
   dialog textarea { width: 100%; min-height: 90px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
   dialog menu { display: flex; justify-content: flex-end; gap: 8px; padding: 0; margin: 10px 0 0; }
-  #genStatus .steps { font-family: ui-monospace, monospace; font-size: 11px; overflow-wrap: anywhere; }
+  #jobs { position: fixed; top: 12px; right: 12px; width: min(340px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 100px); }
+  .job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; backdrop-filter: blur(6px); box-shadow: 0 6px 24px #0003;
+         display: flex; flex-direction: column; min-height: 0; border-left: 3px solid #3a6fd8; }
+  .job.done { border-left-color: #2f8f4e; } .job.failed { border-left-color: #c8402c; } .job.stopped { border-left-color: var(--muted); }
+  .job header { display: flex; align-items: center; gap: 8px; }
+  .job header strong { font-size: 13px; overflow-wrap: anywhere; }
+  .job header .time { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .job header button { padding: 2px 8px; font-size: 12px; }
+  .job .ask { color: var(--muted); font-size: 12px; margin: 4px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .job ol { list-style: none; margin: 0; padding: 0; overflow: auto; max-height: 40vh; font-size: 12px; }
+  .job li { display: grid; grid-template-columns: 16px 1fr; column-gap: 6px; padding: 3px 0; align-items: start; }
+  .job li small { grid-column: 2; color: var(--muted); overflow-wrap: anywhere; }
+  .job li.note .text { color: var(--muted); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .job li.note .text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .job li.ok .mark { color: #2f8f4e; } .job li.error .mark { color: #c8402c; }
+  .job li.running .mark::before, .spinner { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+         border: 2px solid #3a6fd855; border-top-color: #3a6fd8; animation: spin .8s linear infinite; }
+  .job li.running .mark::before { margin-top: 2px; }
+  .job li.thinking { display: block; color: var(--muted); padding-left: 22px; animation: pulse 1.6s ease-in-out infinite; }
+  .job:not(.running) .spinner { display: none; }
+  .job .result { margin-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+  .job .result:empty { display: none; }
+  .job.failed .result { color: #c8402c; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse { 50% { opacity: .45; } }
+  @media (prefers-reduced-motion: reduce) { .spinner, .job li.running .mark::before, .job li.thinking { animation-duration: 3s; } }
 </style>
 </head>
 <body>
@@ -114,7 +139,6 @@
   <div id="walkPos" class="note walkhelp"></div>
   <div id="wandStatus" class="note">Click a block to select it, shift-click another to select the box between them, click the ground to target an empty cell. Drag to orbit. Undo with Ctrl/Cmd+Z.</div>
   <div class="note walkhelp">Walk mode: WASD to move, mouse to look. Walking: Space jumps, Shift sneaks. Double-tap Space to fly or drop; flying, Space/Shift rise and sink, and touching the ground lands you. Left click selects at the crosshair, right click grows the box. With the wheel open, flick the mouse toward an action and click, or press its key. Esc or E frees the cursor: then drag to look and click to select, as in orbit view. E captures the mouse again.</div>
-  <div id="genStatus" class="note"></div>
   <h2>Layers</h2>
   <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
   <div id="sliceLabel" class="note"></div>
@@ -137,6 +161,7 @@
 </aside>
 <div id="crosshair" aria-hidden="true"></div>
 <div id="hotbar"></div>
+<div id="jobs"></div>
 <div id="wheel" role="menu" aria-label="Wand actions">
   <button data-act="copy" role="menuitem">Copy<kbd>C</kbd></button>
   <button data-act="paste" role="menuitem">Paste<kbd>V</kbd></button>
