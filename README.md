@@ -18,6 +18,7 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 | `packages/cc-bridge` | exports cc-factory's layered text or blocks JSON, normalises to `layer:0`, finds a cc-binaries checkout, and `ccToWorld` (where cc-factory actually places a block) |
 | `packages/tester` | builds a turtlesim world from a blueprint, runs `factory.lua`, diffs placed blocks against the blueprint |
 | `packages/mcp` | stdio MCP server: `blueprint_new/apply/get/validate/export_cc/export_gadgets/list/manage/build_plan`, `test_run_build` |
+| `packages/assets` | `npm run assets`: builds a block catalog and texture cache from your local ATM10 install (jars, not committed) |
 | `packages/web` | viewer and file manager: create, rename, duplicate, describe, archive/restore; layer slicer; build prep checklist and schema download; test report and missing/wrong overlay; selector wand (copy, paste, delete, generate) |
 
 ## Setup
@@ -41,6 +42,12 @@ Tests that run the real simulator need CraftOS-PC and a [cc-binaries](https://gi
     }
   }
 }
+```
+
+Build the block catalog and textures once (reads your CurseForge ATM10 instance and the vanilla 1.21.1 jar, takes seconds, writes the gitignored `.assets/`). Override paths with `ATM10_INSTANCE`, `MC_CLIENT_JAR` and `TB_ASSETS`:
+
+```bash
+npm run assets
 ```
 
 View the blueprints (reloads as files change):
@@ -69,6 +76,12 @@ Blueprints export as Building Gadgets 2 templates, the JSON its Template Manager
 3. In survival the gadget takes the blocks from your inventory or linked storage, so gather from the Build prep list first.
 
 Unlike turtles, the gadget keeps blockstate (stairs facing, log axis). Two-block things such as doors and beds need both halves in the blueprint. Every cell of the bounding box is encoded, so very large builds make large templates; split them if a paste is slow or rejected.
+
+### Build tool
+
+Search any ATM10 block in the sidebar and click a result to put it in the selected hotbar slot (keys 1-9). Press `B` (or the Build button; it swaps with the wand) and build by hand: right click places on the clicked face, left click breaks, middle click picks the block under the cursor. Placement follows Minecraft: stairs and furnaces face you, stairs take top or bottom from where you click, logs take the clicked axis, and two slabs merge into a double. It works from orbit view and, while walking, from the crosshair. Undo is the same Ctrl/Cmd+Z as the wand's.
+
+Blocks are drawn with their real textures from your local install. Slabs render at half height and stairs as half-height slabs; other non-cube models are textured cubes, and about 3,000 of the 53,000 blocks with custom textures show a flat colour.
 
 ### Selector wand
 

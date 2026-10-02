@@ -52,6 +52,18 @@
   button[aria-pressed=true] { background: #3a6fd8; border-color: #3a6fd8; color: #fff; }
   #view.wand canvas { cursor: crosshair; }
   .walkhelp, #crosshair { display: none; }
+  #view.build canvas { cursor: crosshair; }
+  input[type=search] { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  #results { max-height: 260px; overflow: auto; margin-top: 6px; }
+  li.hit { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 3px 4px; border-radius: 6px; }
+  li.hit:hover { background: var(--line); }
+  li.hit small, .slot small { color: var(--muted); font-size: 11px; }
+  .icon { width: 28px; height: 28px; flex: none; background-size: 100% auto; background-position: top; image-rendering: pixelated; border-radius: 3px; border: 1px solid #0003; }
+  #hotbar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 4px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(6px); }
+  .slot { position: relative; padding: 3px; width: 44px; height: 44px; display: grid; place-items: center; }
+  .slot.on { outline: 2px solid #3b82f6; outline-offset: 1px; }
+  .slot small { position: absolute; top: 1px; left: 4px; }
+  .slot .icon { width: 34px; height: 34px; }
   body.walking .walkhelp { display: block; }
   body.walking.locked #crosshair { display: block; position: fixed; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; pointer-events: none;
     background: linear-gradient(#fff, #fff) center / 2px 100% no-repeat, linear-gradient(#fff, #fff) center / 100% 2px no-repeat; mix-blend-mode: difference; }
@@ -93,8 +105,12 @@
     <div class="row"><button type="submit" class="primary">Save</button><button type="button" id="fCancel">Cancel</button></div>
   </form>
   <details id="archivedBox"><summary>Archived (<span id="archivedN">0</span>)</summary><ul id="archived"></ul></details>
-  <h2>Selector wand</h2>
-  <div class="row"><button id="wand" aria-pressed="true">Wand on <kbd>Q</kbd></button><button id="walk" aria-pressed="false">Walk <kbd>F</kbd></button></div>
+  <h2>Blocks</h2>
+  <input id="search" type="search" placeholder="Search ATM10 blocks" aria-label="Search blocks">
+  <ul id="results"></ul>
+  <div class="note">Hotbar below: keys 1-9. Build tool <kbd>B</kbd>: right-click places, left-click breaks, middle-click picks.</div>
+  <h2>Tools</h2>
+  <div class="row"><button id="build" aria-pressed="false">Build off <kbd>B</kbd></button><button id="wand" aria-pressed="true">Wand on <kbd>Q</kbd></button><button id="walk" aria-pressed="false">Walk <kbd>F</kbd></button></div>
   <div id="walkPos" class="note walkhelp"></div>
   <div id="wandStatus" class="note">Click a block to select it, shift-click another to select the box between them, click the ground to target an empty cell. Drag to orbit. Undo with Ctrl/Cmd+Z.</div>
   <div class="note walkhelp">Walk mode: WASD to move, mouse to look. Walking: Space jumps, Shift sneaks. Double-tap Space to fly or drop; flying, Space/Shift rise and sink, and touching the ground lands you. Left click selects at the crosshair, right click grows the box. With the wheel open, flick the mouse toward an action and click, or press its key. Esc or E frees the cursor: then drag to look and click to select, as in orbit view. E captures the mouse again.</div>
@@ -120,6 +136,7 @@
   <div class="note">A turtle built by cc-factory is mirrored left to right and sits behind-left of its start (turtlesim/README.md). Blueprint coordinates are shown as designed.</div>
 </aside>
 <div id="crosshair" aria-hidden="true"></div>
+<div id="hotbar"></div>
 <div id="wheel" role="menu" aria-label="Wand actions">
   <button data-act="copy" role="menuitem">Copy<kbd>C</kbd></button>
   <button data-act="paste" role="menuitem">Paste<kbd>V</kbd></button>

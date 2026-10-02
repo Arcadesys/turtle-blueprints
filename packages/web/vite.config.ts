@@ -179,4 +179,17 @@ function blueprintApi(): Plugin {
   };
 }
 
-export default defineConfig({ plugins: [blueprintApi()], server: { port: 5173 } });
+/** Texture files and block search live in server/api.ts, loaded through Vite so it can import the TypeScript workspace packages. */
+function blockCatalog(): Plugin {
+  return {
+    name: "block-catalog",
+    configureServer(server) {
+      const api = () => server.ssrLoadModule("/server/api.ts") as Promise<typeof import("./server/api")>;
+      server.middlewares.use("/mc", (req, res, next) => { void api().then((m) => m.serveTexture(req, res, next)); });
+      server.middlewares.use("/api", (req, res, next) => { void api().then((m) => m.serveBlocks(req, res, next)); });
+    },
+  };
+}
+
+// blockCatalog first, so /api/blocks is answered before blueprintApi's catch-all.
+export default defineConfig({ plugins: [blockCatalog(), blueprintApi()], server: { port: 5173 } });

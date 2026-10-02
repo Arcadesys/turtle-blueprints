@@ -1,0 +1,8 @@
+{
+  "name": "@tb/assets",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/extract.ts",
+  "dependencies": { "@tb/blueprint": "*", "fflate": "^0.8.2" }
+}

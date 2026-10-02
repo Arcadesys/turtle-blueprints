@@ -2,10 +2,13 @@
   "name": "turtle-blueprints",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "assets": "tsx packages/assets/src/extract.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

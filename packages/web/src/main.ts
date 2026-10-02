@@ -3,7 +3,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import { baseId, buildPlan, TURTLE_SLOTS, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
 import { toGadgetsJson } from "@tb/blueprint/gadgets";
-import { EYE, stepPlayer } from "./walk";
+import { EYE, HALF_WIDTH, HEIGHT, stepPlayer } from "./walk";
+import { dropFallbackMaterials, ensureBlocks, geometryFor, materialsFor, rotationFor, variantOf, type Shape } from "./textures";
+import { initPalette, selectSlot } from "./palette";
+import { createBuilder } from "./build";
 import { WHEEL, blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelAngle, wheelSlice, type Box, type Clip } from "./wand";
 
 // Shape of the /api/blueprint response; the report is computed server-side by @tb/tester.
@@ -56,6 +59,9 @@ scene.add(group);
 let current: Payload | null = null;
 /** Cells the walking player collides with: the blocks currently shown. */
 let solidCells = new Set<string>();
+/** The same cells with their block ids, for the build tool. */
+let cellBlocks = new Map<string, string>();
+let renderToken = 0;
 let framed = "";
 
 function render() {
@@ -65,18 +71,26 @@ function render() {
   const maxY = Number($<HTMLInputElement>("slice").value);
   const shown = bp.blocks.filter((b) => b[1] <= maxY);
   solidCells = new Set(shown.map((b) => `${b[0]},${b[1]},${b[2]}`));
+  cellBlocks = new Map(shown.map((b) => [`${b[0]},${b[1]},${b[2]}`, b[3]]));
+  // Group by full block id (state included) so each orientation gets its own textured mesh.
   const byBlock = new Map<string, Array<[number, number, number]>>();
-  for (const [x, y, z, b] of shown) {
-    const id = baseId(b);
-    (byBlock.get(id) ?? byBlock.set(id, []).get(id)!).push([x, y, z]);
-  }
+  for (const [x, y, z, b] of shown) (byBlock.get(b) ?? byBlock.set(b, []).get(b)!).push([x, y, z]);
   const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const one = new THREE.Vector3(1, 1, 1);
   for (const [id, cells] of byBlock) {
-    const mesh = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial({ color: colorOf(id) }), cells.length);
-    cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x, y, z)));
+    const v = variantOf(id);
+    const mesh = new THREE.InstancedMesh(geometryFor((v?.s ?? "cube") as Shape), materialsFor(id), cells.length);
+    q.setFromEuler(rotationFor(v));
+    cells.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.compose(new THREE.Vector3(x, y, z), q, one)));
     mesh.userData.cells = cells; // lets the wand map a hit instance back to its block
     group.add(mesh);
   }
+  // Fetch catalog entries for blocks without a texture yet, then draw again with them.
+  const token = ++renderToken;
+  void ensureBlocks(byBlock.keys()).then((fresh) => {
+    if (fresh && token === renderToken) { dropFallbackMaterials(); render(); }
+  });
   if (report && $<HTMLInputElement>("ghosts").checked) {
     const ghost = (cells: Array<[number, number, number]>, color: number) => {
       const cells2 = cells.filter((c) => c[1] <= maxY);
@@ -441,6 +455,7 @@ function walkStep(dt: number) {
 // Click to ping and select, shift-click (or right-click while walking) to grow a box,
 // then act from the wheel.
 
+let buildOn = false; // the Build tool, below
 let wandOn = true;
 let anchor: Vec3 | null = null;
 let sel: Box | null = null;
@@ -683,18 +698,50 @@ function setWand(on: boolean) {
   if (!on) hot(null);
   $("view").classList.toggle("wand", on);
   if (!on) { closeWheel(); select(null, null); }
+  if (on && buildOn) setBuild(false);
 }
 $("wand").addEventListener("click", () => setWand(!wandOn));
 setWand(true);
 
 $("walk").addEventListener("click", () => setWalk(!walking));
 
+// --- Build tool ----------------------------------------------------------
+// Hand building with the searched block: right click places, left click breaks, middle click
+// picks. Turning it on turns the wand off (they both want the click), and back.
+const builder = createBuilder({
+  scene, camera,
+  cells: () => cellBlocks,
+  floorY: () => grid.position.y,
+  blocked: (c) => {
+    if (!walking) return false;
+    const p = camera.position;
+    return Math.abs(p.x - c[0]) < 0.5 + HALF_WIDTH && Math.abs(p.z - c[2]) < 0.5 + HALF_WIDTH && p.y - EYE < c[1] + 0.5 && p.y - EYE + HEIGHT > c[1] - 0.5;
+  },
+});
+function setBuild(on: boolean) {
+  buildOn = on;
+  $("build").setAttribute("aria-pressed", String(on));
+  $("build").firstChild!.textContent = on ? "Build on " : "Build off ";
+  $("view").classList.toggle("build", on);
+  if (on && wandOn) setWand(false);
+  if (!on) builder.hover(null);
+}
+$("build").addEventListener("click", () => setBuild(!buildOn));
+let pointerNdc: THREE.Vector2 | null = null;
+const aimNdc = () => (locked() ? new THREE.Vector2(0, 0) : pointerNdc);
+renderer.domElement.addEventListener("pointermove", (e) => {
+  const r = renderer.domElement.getBoundingClientRect();
+  pointerNdc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+});
+renderer.domElement.addEventListener("pointerleave", () => { pointerNdc = null; });
+initPalette();
+
 // A click (not an orbit drag) with the wand pings a block and opens the wheel.
 // Walking: left click selects from the crosshair (or confirms the steered wheel slice),
 // right click grows the box, like a WorldEdit wand.
 let down: { x: number; y: number; button: number } | null = null;
 renderer.domElement.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, button: e.button }; });
-renderer.domElement.addEventListener("contextmenu", (e) => { if (walking) e.preventDefault(); });
+renderer.domElement.addEventListener("contextmenu", (e) => { if (walking || buildOn) e.preventDefault(); });
 renderer.domElement.addEventListener("pointermove", (e) => {
   if (walking && !locked() && down?.button === 0) dragLook(e.movementX, e.movementY);
 });
@@ -703,6 +750,12 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   const moved = locked() ? 0 : Math.hypot(e.clientX - down.x, e.clientY - down.y);
   down = null;
   if (moved > 5) return;
+  if (buildOn) {
+    const ndc = locked() ? new THREE.Vector2(0, 0) : new THREE.Vector2(((e.clientX - renderer.domElement.getBoundingClientRect().left) / renderer.domElement.clientWidth) * 2 - 1, -((e.clientY - renderer.domElement.getBoundingClientRect().top) / renderer.domElement.clientHeight) * 2 + 1);
+    const action = builder.click(e.button, ndc);
+    if (action) void edit(action.ops, action.done);
+    return;
+  }
   if (locked() && e.button === 0 && wheel.classList.contains("open") && hotAct()) return void act(hotAct()!);
   const extend = walking ? e.button === 2 : e.button === 0 && e.shiftKey;
   if (!wandOn || (e.button !== 0 && !extend)) return;
@@ -740,6 +793,8 @@ addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (k === "escape") { closeWheel(); select(null, null); anchor = null; }
   else if (k === "q") setWand(!wandOn);
+  else if (k === "b") setBuild(!buildOn);
+  else if (/^[1-9]$/.test(k)) selectSlot(Number(k) - 1);
   else if (k === "f") setWalk(!walking);
   else if (k === "e" && walking) { closeWheel(); if (locked()) look.unlock(); else capture(); }
   else if (wheel.classList.contains("open")) {
@@ -755,6 +810,7 @@ renderer.setAnimationLoop(() => {
     if (t >= 1) { wandLayer.remove(ping.line); ping = null; }
     else { ping.line.scale.setScalar(1 + t * 0.8); (ping.line.material as THREE.LineBasicMaterial).opacity = 1 - t; }
   }
+  builder.hover(buildOn ? aimNdc() : null);
   if (!walking) controls.update();
   renderer.render(scene, camera);
 });
