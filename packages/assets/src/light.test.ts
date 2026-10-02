@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { jarClasses } from "./extract";
 import { classLoader, scanVanilla } from "./light";
 
@@ -19,7 +19,11 @@ const jars = [find(join(libs, "net/neoforged/neoforge"), /-client\.jar$/), find(
 
 describe.skipIf(jars.some((j) => !j))("light levels from Minecraft's code", () => {
   const scan = () => scanVanilla(classLoader(...jars.map((j) => jarClasses(readFileSync(j!)).classes)));
-  const r = scan();
+  // Built in beforeAll: a skipped describe still runs its body, and the jars are null then.
+  let r: ReturnType<typeof scan>;
+  beforeAll(() => {
+    r = scan();
+  });
   const emit = (id: string, state: Record<string, string> = {}) => r.blocks.get(`minecraft:${id}`)?.emit?.(state);
 
   it("reads constant levels", () => {
