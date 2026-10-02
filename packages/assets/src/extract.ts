@@ -326,37 +326,62 @@ export function readEnv(clientJar: Uint8Array, optionsTxt: string | null): Light
   };
 }
 
-function main() {
-  const instance = resolve(process.env.ATM10_INSTANCE ?? join(homedir(), "Documents/curseforge/minecraft/Instances/All the Mods 10 - ATM10"));
-  const clientJar = resolve(process.env.MC_CLIENT_JAR ?? join(homedir(), "Documents/curseforge/minecraft/Install/versions/1.21.1/1.21.1.jar"));
-  const out = resolve(process.env.TB_ASSETS ?? ".assets");
-  for (const p of [instance, clientJar]) if (!existsSync(p)) throw new Error(`not found: ${p} (set ATM10_INSTANCE / MC_CLIENT_JAR)`);
+/** Where CurseForge and the vanilla launcher usually keep ATM10 and the 1.21.1 client jar on this OS. */
+export function defaultPaths(home = homedir(), platform = process.platform, env = process.env): { instance: string[]; clientJar: string[] } {
+  const curseforge = platform === "win32" ? [join(home, "curseforge", "minecraft"), join(home, "Documents", "curseforge", "minecraft")] : [join(home, "Documents", "curseforge", "minecraft")];
+  const vanilla =
+    platform === "win32" ? join(env.APPDATA ?? join(home, "AppData", "Roaming"), ".minecraft")
+    : platform === "darwin" ? join(home, "Library", "Application Support", "minecraft")
+    : join(home, ".minecraft");
+  return {
+    instance: curseforge.map((c) => join(c, "Instances", "All the Mods 10 - ATM10")),
+    clientJar: [...curseforge.map((c) => join(c, "Install", "versions", "1.21.1", "1.21.1.jar")), join(vanilla, "versions", "1.21.1", "1.21.1.jar")],
+  };
+}
+
+export interface AssetsResult {
+  blocks: number;
+  textures: number;
+  /** Blocks that give off light in at least one state. */
+  lit: number;
+  env: LightEnv;
+  /** Blocks whose lightLevel could not be followed through the code. */
+  unresolved: string[];
+}
+
+/**
+ * Read the client jar, the instance's mods and kubejs/assets, and write the catalog and textures to `out`.
+ * Light levels come from the deobfuscated client NeoForge installs next to the client jar (or `codeJars`).
+ */
+export function buildAssets(a: { instance: string; clientJar: string; out: string; codeJars?: string[]; progress?: (msg: string, done?: number, total?: number) => void }): AssetsResult {
+  const say = a.progress ?? (() => {});
+  for (const p of [a.instance, a.clientJar]) if (!existsSync(p)) throw new Error(`not found: ${p}`);
+  const mods = join(a.instance, "mods");
+  if (!existsSync(mods)) throw new Error(`no mods folder in ${a.instance}: pick the ATM10 instance folder`);
   const src = newSources();
-  console.log("vanilla", clientJar);
-  const clientBytes = readFileSync(clientJar);
-  addJar(src, () => readFileSync(clientJar));
-  const optionsFile = join(instance, "options.txt");
-  const env = readEnv(clientBytes, existsSync(optionsFile) ? readFileSync(optionsFile, "utf8") : null);
+  say(`vanilla ${a.clientJar}`);
+  addJar(src, () => readFileSync(a.clientJar));
+  const optionsFile = join(a.instance, "options.txt");
+  const env = readEnv(readFileSync(a.clientJar), existsSync(optionsFile) ? readFileSync(optionsFile, "utf8") : null);
 
   // Light levels live in code: read them from the deobfuscated client, then from each mod.
   const light = new Map<string, CodeLight>();
   const unresolved: string[] = [];
-  const code = codeJars(resolve(clientJar, "../../.."));
+  const code = a.codeJars ?? codeJars(resolve(a.clientJar, "../../.."));
   let vanilla: ReturnType<typeof scanVanilla> | null = null;
   let load: ClassLoader | null = null;
   if (code.length) {
-    console.log("code", code.join(", "));
+    say(`code ${code.join(", ")}`);
     load = classLoader(...code.map((j) => jarClasses(readFileSync(j)).classes));
     vanilla = scanVanilla(load);
     for (const [id, l] of vanilla.blocks) light.set(id, l);
     unresolved.push(...vanilla.unresolved);
-  } else console.warn("no deobfuscated client jar found (set MC_CODE_JARS): blocks will not give off light");
+  } else say("no deobfuscated client jar found (set MC_CODE_JARS): blocks will not give off light");
   const known = (id: string) => { const i = id.indexOf(":"); return src.json.has(`assets/${id.slice(0, i)}/blockstates/${id.slice(i + 1)}.json`); };
 
-  const mods = join(instance, "mods");
   const jars = readdirSync(mods).filter((f) => f.endsWith(".jar")).sort();
   jars.forEach((j, i) => {
-    process.stdout.write(`\r[${i + 1}/${jars.length}] ${j.slice(0, 60).padEnd(60)}`);
+    say(j, i + 1, jars.length);
     try {
       const bytes = readFileSync(join(mods, j));
       addJar(src, () => readFileSync(join(mods, j)));
@@ -366,14 +391,9 @@ function main() {
         for (const [id, l] of r.blocks) if (!light.has(id)) light.set(id, l);
         unresolved.push(...r.unresolved);
       }
-    } catch (e) { console.warn(`\nskipped ${j}: ${(e as Error).message}`); }
+    } catch (e) { say(`skipped ${j}: ${(e as Error).message}`); }
   });
-  addDir(src, join(instance, "kubejs", "assets"));
-  console.log("\nbuilding catalog...");
-  const r = writeAssets(src, out, light, env);
-  console.log(`wrote ${r.blocks} blocks (${r.lit} give off light) and ${r.textures} textures to ${out}`);
-  console.log(`lighting: ambient ${env.ambient}, sky #${env.sky.toString(16)}, gamma ${env.gamma}, smooth ${env.smooth}`);
-  if (unresolved.length) console.log(`light level not followed for ${unresolved.length}: ${unresolved.slice(0, 20).join(", ")}${unresolved.length > 20 ? ", ..." : ""}`);
+  addDir(src, join(a.instance, "kubejs", "assets"));
+  say("building catalog...");
+  return { ...writeAssets(src, a.out, light, env), env, unresolved };
 }
-
-if (import.meta.url === `file://${process.argv[1]}`) main();

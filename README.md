@@ -19,7 +19,27 @@ Blueprint files on disk are the source of truth. The MCP server holds no state, 
 | `packages/tester` | builds a turtlesim world from a blueprint, runs `factory.lua`, diffs placed blocks against the blueprint |
 | `packages/mcp` | stdio MCP server: `blueprint_new/apply/get/validate/export_cc/export_gadgets/list/manage/build_plan`, `test_run_build` |
 | `packages/assets` | `npm run assets`: builds a block catalog and texture cache from your local ATM10 install (jars, not committed), with each block's light level read from the game and mod code |
+| `packages/desktop` | Electron app for Windows and macOS: hosts the viewer and its backend, builds the block catalog from a menu, runs Generate and the MCP server with its own bundled Node |
 | `packages/web` | viewer and file manager: create, rename, duplicate, describe, archive/restore; layer slicer; Minecraft lighting with time of day; build prep checklist and schema download; test report and missing/wrong overlay; selector wand (copy, paste, delete, generate) |
+
+## Desktop app (Windows and macOS)
+
+The easiest way to use it: no Node, terminal or repo checkout needed.
+
+1. Download the installer (`.dmg` for Mac, `.exe` for Windows) from the [Releases](https://github.com/Arcadesys/turtle-blueprints/releases) page and install it. The builds are not code signed yet: on a Mac, right click the app and choose **Open** the first time; on Windows, choose **More info › Run anyway**.
+2. On first launch it offers to build the block catalog. It looks for ATM10 and the Minecraft 1.21.1 jar where CurseForge and the vanilla launcher put them, and asks you to pick the folders if they are somewhere else (**Tools › Build Block Catalog** reruns it, for example after a modpack update).
+3. Blueprints live in `Documents/Turtle Blueprints` (starting with the samples from this repo). **File › Choose Blueprints Folder** points the app somewhere else, such as this repo's `blueprints/`.
+
+Generate needs [Claude Code](https://claude.com/claude-code) installed and signed in (`claude auth login`). The app finds it on PATH or where its installers put it; **Tools › Locate Claude Code** sets the path by hand. Turtle tests need a cc-binaries checkout: **Tools › Choose cc-binaries Folder**. **Tools › Copy MCP Config for Claude Code** copies an MCP server entry that runs from the installed app, for using the turtle-blueprints tools from your own Claude Code sessions.
+
+To build the app from source:
+
+```bash
+npm install
+npm run start -w @tb/desktop
+```
+
+`npm run dist:mac -w @tb/desktop` or `npm run dist:win -w @tb/desktop` makes an installer in `packages/desktop/release/`; build each on its own OS. Pushing a `v*` tag (or running the **Desktop app** workflow by hand) builds both on GitHub Actions and attaches them to the release.
 
 ## Setup
 
@@ -101,7 +121,7 @@ The viewer has a selector wand (toggle with `Q`). Click a block to ping and sele
 | Paste | `V` | pastes onto the clicked face, or at the clicked ground cell |
 | Delete | `X` | clears the selected box |
 | New | `N` | saves the selected blocks as a new blueprint (moved so the box starts at 0,0,0), or starts an empty one when nothing is selected, then switches to it |
-| Generate | `G` | asks for a request in plain words, then runs headless Claude Code with only this MCP server: it edits the blueprint around the selection, validates it, exports a cc-factory schema to `blueprints/exports/`, and runs the turtle test. Progress and the result show in the sidebar. |
+| Generate | `G` | asks for a request in plain words, then runs headless Claude Code with only this MCP server: it edits the blueprint around the selection, validates it, exports a cc-factory schema to `blueprints/exports/`, and runs the turtle test. A card in the top right follows it live: each step Claude takes (reading, placing blocks, validating, the turtle test) with its result, what Claude says along the way, and the elapsed time. **Stop** ends it early. |
 
 Press `F` to walk, first person like Minecraft creative: WASD and the mouse to look. You start flying (Space/Shift rise and sink); double-tap Space to drop and walk with gravity (Space jumps, Shift sneaks), and double-tap again to fly. Landing on the ground ends a flight. Blocks you can see are solid; if you start inside one you can move out freely. The wand aims from the crosshair while walking: left click selects, right click grows the box, and with the wheel open you flick the mouse toward an action and click (the keys still work). With the cursor free (Esc or `E`, or if the browser refuses to capture the mouse) you keep walking, drag to look, and the wand aims at the cursor; `E` captures the mouse again. Generate frees the cursor so you can type.
 

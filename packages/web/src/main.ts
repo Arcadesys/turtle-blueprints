@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
 import { baseId, buildPlan, TURTLE_SLOTS, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
 import { toGadgetsJson } from "@tb/blueprint/gadgets";
+import type { GenerateJob } from "./checkpoints";
 import { EYE, HALF_WIDTH, HEIGHT, stepPlayer } from "./walk";
 import { dropFallbackMaterials, ensureBlocks, geometryFor, lightOf, materialsFor, rotationFor, setLightmap, setLightVolume, setSmoothLighting, variantOf, type Shape } from "./textures";
 import { computeLight, lightmap, skyColor, skyDarken } from "./lighting";
@@ -647,23 +648,100 @@ async function generate(request: string) {
     body: JSON.stringify({ name, request, box: sel, target }),
   });
   const out = (await res.json()) as { id?: string; error?: string };
-  const box = $("genStatus");
-  if (!out.id) { box.textContent = `Generate failed: ${out.error}`; return; }
+  const card = jobCard(name, request);
+  if (!out.id) {
+    card.update({ name, status: "failed", checkpoints: [], result: out.error ?? "could not start", started: Date.now(), finished: Date.now() });
+    return;
+  }
   undo.push(before); // Ctrl/Cmd+Z puts back the design from before this generate
-  const poll = async () => {
-    const job = (await (await fetch(`/api/generate/${out.id}`)).json()) as { status: string; steps: string[]; result: string };
-    const head = document.createElement("div");
-    head.className = job.status === "done" ? "pass" : job.status === "failed" ? "fail" : "";
-    head.textContent = job.status === "running" ? `Generating in ${name}…` : job.status === "done" ? "Generated" : "Generate failed";
-    const steps = document.createElement("div");
-    steps.className = "steps";
-    steps.textContent = job.steps.join(" → ");
-    const result = document.createElement("div");
-    result.textContent = job.result;
-    box.replaceChildren(head, steps, result);
-    if (job.status === "running") setTimeout(() => void poll(), 1500);
+  card.stop = () => void fetch(`/api/generate/${out.id}/stop`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  const events = new EventSource(`/api/generate/${out.id}/events`);
+  events.onmessage = (e) => {
+    const job = JSON.parse(e.data as string) as GenerateJob;
+    card.update(job);
+    if (job.status !== "running") events.close();
   };
-  void poll();
+}
+
+const fmtTime = (ms: number) => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
+
+/** A floating card that follows one Generate run: spinner, elapsed time, checkpoints, result. */
+function jobCard(name: string, request: string) {
+  const el = document.createElement("section");
+  el.className = "job running";
+  el.setAttribute("aria-live", "polite");
+  const head = document.createElement("header");
+  const spin = document.createElement("span");
+  spin.className = "spinner";
+  spin.setAttribute("aria-hidden", "true");
+  const title = document.createElement("strong");
+  title.textContent = `Generating in ${name}`;
+  const time = document.createElement("span");
+  time.className = "time";
+  const btn = document.createElement("button");
+  btn.textContent = "Stop";
+  head.append(spin, title, time, btn);
+  const ask = document.createElement("div");
+  ask.className = "ask";
+  ask.textContent = request.trim();
+  ask.title = request.trim();
+  const list = document.createElement("ol");
+  const result = document.createElement("div");
+  result.className = "result";
+  el.append(head, ask, list, result);
+  $("jobs").prepend(el);
+
+  let job: GenerateJob = { name, status: "running", checkpoints: [], result: "", started: Date.now() };
+  const tick = () => { time.textContent = fmtTime((job.finished ?? Date.now()) - job.started); };
+  const timer = setInterval(tick, 1000);
+  tick();
+  const card = {
+    stop: null as (() => void) | null,
+    update(next: GenerateJob) {
+      job = next;
+      const running = job.status === "running";
+      el.className = `job ${job.status}`;
+      title.textContent = running ? `Generating in ${name}` : job.status === "done" ? `Generated in ${name}` : job.status === "stopped" ? `Stopped in ${name}` : `Generate failed in ${name}`;
+      btn.textContent = running ? "Stop" : "Dismiss";
+      const rows = job.checkpoints.map((cp) => {
+        const li = document.createElement("li");
+        li.className = `${cp.kind} ${cp.state ?? ""}`;
+        const mark = document.createElement("span");
+        mark.className = "mark";
+        mark.textContent = cp.kind === "note" ? "" : cp.state === "running" ? "" : cp.state === "error" ? "✕" : "✓";
+        const text = document.createElement("span");
+        text.className = "text";
+        text.textContent = cp.text;
+        li.append(mark, text);
+        if (cp.detail) {
+          const d = document.createElement("small");
+          d.textContent = cp.detail;
+          li.append(d);
+        }
+        return li;
+      });
+      // Between events Claude is thinking: say so, so a quiet minute doesn't look stuck.
+      if (running && !job.checkpoints.some((cp) => cp.state === "running")) {
+        const li = document.createElement("li");
+        li.className = "thinking";
+        li.textContent = job.checkpoints.length ? "Thinking…" : "Starting Claude Code…";
+        rows.push(li);
+      }
+      const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 24;
+      list.replaceChildren(...rows);
+      if (atBottom) list.scrollTop = list.scrollHeight;
+      result.textContent = running ? "" : job.result;
+      tick();
+      if (!running) clearInterval(timer);
+    },
+  };
+  btn.addEventListener("click", () => {
+    if (job.status === "running") { btn.disabled = true; card.stop?.(); return; }
+    clearInterval(timer);
+    el.remove();
+  });
+  card.update(job);
+  return card;
 }
 
 $<HTMLDialogElement>("gen").addEventListener("close", () => {

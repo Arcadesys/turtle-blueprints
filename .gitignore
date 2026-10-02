@@ -4,3 +4,5 @@ dist
 *.log
 .turtle-test/
 .assets/
+blueprints/starship-enterprise.blueprint.json
+release/

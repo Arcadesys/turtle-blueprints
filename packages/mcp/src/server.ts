@@ -120,4 +120,4 @@ server.registerTool(
   (a) => guard(() => testTool(store, { ...a, ccBinaries: process.env.CC_BINARIES }))(),
 );
 
-await server.connect(new StdioServerTransport());
+void server.connect(new StdioServerTransport());
