@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { baseId, bounds, materials, type Blueprint, type Vec3 } from "@tb/blueprint";
+import { baseId, bounds, type Blueprint, type Vec3 } from "@tb/blueprint";
 
 /**
  * Where a blueprint block ends up when cc-factory builds it with the default
@@ -22,22 +22,17 @@ export function normalise(bp: Blueprint): Blueprint {
   };
 }
 
-// '.', ':', '=' and whitespace are legend separators or air, so never symbols.
-const SYMBOLS = "#GLTSWBCPFRIOMNKHDEAUXYZQVJ0123456789abcdefghijklmnopqrstuvwxyz@$%&*+";
+// One byte per cell, since cc-factory reads rows a character at a time; "." and " " are air.
+// Quote and backslash are left out so the rows stay readable once JSON-escaped.
+const SYMBOLS = "#GLTSWBCPFRIOMNKHDEAUXYZQVJ0123456789abcdefghijklmnopqrstuvwxyz@$%&*+!'(),-/:;<=>?[]^_`{|}~";
 
-export interface LayeredExport {
-  format: "layered-text";
-  text: string;
-  /** symbol -> base block id */
-  legend: Record<string, string>;
-  warnings: string[];
-}
-
-export interface BlocksExport {
-  format: "blocks-json";
+/** A cc-factory schema: JSON, read by cc-factory's lib_parser. */
+export interface CcSchema {
   text: string;
   warnings: string[];
 }
+
+type LegendEntry = string | { material: string; meta: { state: Record<string, string> } };
 
 function stateWarnings(bp: Blueprint): string[] {
   return bp.blocks.some((b) => b[3].includes("["))
@@ -45,55 +40,60 @@ function stateWarnings(bp: Blueprint): string[] {
     : [];
 }
 
-/** cc-factory text grid: `legend:` then `layer:N` blocks, x across, z down. */
-export function toLayeredText(input: Blueprint): LayeredExport {
+/** "mod:block[k=v]" as a cc-factory material plus meta. */
+function entryFor(block: string): LegendEntry {
+  const m = /\[(.*)\]$/.exec(block);
+  if (!m?.[1]) return block;
+  return { material: baseId(block), meta: { state: Object.fromEntries(m[1].split(",").map((p) => p.split("="))) } };
+}
+
+/** cc-factory `{legend, layers:[{y, rows}]}` JSON: one symbol per distinct block state, rows x across, z down. */
+export function toLayersJson(input: Blueprint): CcSchema {
   const bp = normalise(input);
-  const mats = materials(bp);
-  if (mats.length > SYMBOLS.length) {
-    throw new Error(`${mats.length} materials exceed the ${SYMBOLS.length} text-grid symbols; use toBlocksJson`);
+  const states = [...new Set(bp.blocks.map((b) => b[3]))].sort();
+  if (states.length > SYMBOLS.length) {
+    throw new Error(`${states.length} block states exceed the ${SYMBOLS.length} grid symbols; use toBlocksJson`);
   }
-  const symbols = new Map<string, string>();
-  const legend: Record<string, string> = {};
-  mats.forEach((m, i) => {
-    const s = SYMBOLS[i] as string;
-    symbols.set(m.block, s);
-    legend[s] = m.block;
-  });
+  const symbols = new Map(states.map((b, i) => [b, SYMBOLS[i] as string]));
+  const legend = Object.fromEntries(states.map((b) => [symbols.get(b)!, entryFor(b)]));
   const bb = bounds(bp);
-  const lines: string[] = ["legend:"];
-  for (const [s, block] of Object.entries(legend)) lines.push(`${s} = ${block}`);
+  const layers: Array<{ y: number; rows: string[] }> = [];
   if (bb) {
     const cells = new Map(bp.blocks.map((b) => [`${b[0]},${b[1]},${b[2]}`, b[3]]));
     for (let y = 0; y <= bb.max[1]; y++) {
-      lines.push("", `layer:${y}`);
+      const rows: string[] = [];
       for (let z = 0; z <= bb.max[2]; z++) {
         let row = "";
         for (let x = 0; x <= bb.max[0]; x++) {
           const b = cells.get(`${x},${y},${z}`);
-          row += b ? (symbols.get(baseId(b)) as string) : ".";
+          row += b ? symbols.get(b) : ".";
         }
-        lines.push(row);
+        rows.push(row);
       }
+      if (rows.some((r) => /[^.]/.test(r))) layers.push({ y, rows });
     }
   }
-  return { format: "layered-text", text: lines.join("\n") + "\n", legend, warnings: stateWarnings(bp) };
+  // One row per line keeps the file readable and diffable without the bulk of full indentation.
+  const text =
+    `{"legend":${JSON.stringify(legend, null, 1)},\n"layers":[\n` +
+    layers.map((l) => `{"y":${l.y},"rows":[\n${l.rows.map((r) => JSON.stringify(r)).join(",\n")}\n]}`).join(",\n") +
+    "\n]}\n";
+  return { text, warnings: stateWarnings(bp) };
 }
 
-/** cc-factory `{blocks:[{x,y,z,material,meta}]}` JSON; no palette limit. */
-export function toBlocksJson(input: Blueprint): BlocksExport {
+/** cc-factory `{blocks:[{x,y,z,material,meta}]}` JSON: no symbol limit, but several times the size of layers. */
+export function toBlocksJson(input: Blueprint): CcSchema {
   const bp = normalise(input);
   const blocks = bp.blocks.map(([x, y, z, b]) => {
-    const entry: Record<string, unknown> = { x, y, z, material: baseId(b) };
-    const m = /\[(.*)\]$/.exec(b);
-    if (m?.[1]) entry.meta = { state: Object.fromEntries(m[1].split(",").map((p) => p.split("="))) };
-    return entry;
+    const e = entryFor(b);
+    return typeof e === "string" ? { x, y, z, material: e } : { x, y, z, ...e };
   });
-  return { format: "blocks-json", text: JSON.stringify({ blocks }, null, 1) + "\n", warnings: stateWarnings(bp) };
+  return { text: `{"blocks":[\n${blocks.map((b) => JSON.stringify(b)).join(",\n")}\n]}\n`, warnings: stateWarnings(bp) };
 }
 
-/** Pick layered text when the palette fits, else blocks JSON. */
-export function exportSchema(bp: Blueprint): LayeredExport | BlocksExport {
-  return materials(bp).length <= SYMBOLS.length ? toLayeredText(bp) : toBlocksJson(bp);
+/** The cc-factory schema for a blueprint: layers when the block states fit the symbols, else a block list. */
+export function exportSchema(bp: Blueprint): CcSchema {
+  return new Set(bp.blocks.map((b) => b[3])).size <= SYMBOLS.length ? toLayersJson(bp) : toBlocksJson(bp);
 }
 
 export interface CcBinaries {

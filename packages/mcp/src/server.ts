@@ -92,7 +92,7 @@ server.registerTool(
 server.registerTool(
   "blueprint_export_cc",
   {
-    description: "Export to a cc-factory schema (layered text, or blocks JSON when there are too many materials). Writes outPath if given.",
+    description: "Export to a cc-factory schema (JSON: a legend and one row string per z, layer by layer; a block list when there are too many block states). Writes outPath (use .json) if given.",
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => exportTool(store, a))(),

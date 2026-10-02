@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyOps, newBlueprint } from "@tb/blueprint";
-import { ccToWorld, normalise, toBlocksJson, toLayeredText } from "./index";
+import { ccToWorld, exportSchema, normalise, toBlocksJson, toLayersJson } from "./index";
 
 // Same shape as the 5x5 spike run through turtlesim.
 const spike = applyOps(newBlueprint("spike"), [
@@ -18,36 +18,48 @@ describe("normalise", () => {
   });
 });
 
-describe("toLayeredText", () => {
-  it("emits a legend, layer:N headers and rectangular rows", () => {
-    const out = toLayeredText(spike);
-    expect(out.text).toContain("legend:");
-    expect(out.text).toContain("layer:0");
-    expect(out.text).toContain("layer:1");
+describe("toLayersJson", () => {
+  const parse = (bp: Parameters<typeof toLayersJson>[0]) => JSON.parse(toLayersJson(bp).text);
+  const sym = (legend: Record<string, unknown>, block: string) => Object.entries(legend).find(([, v]) => v === block)?.[0] as string;
+
+  it("emits a legend and one rectangular layer per y", () => {
+    const out = parse(spike);
     expect(Object.values(out.legend).sort()).toEqual(["minecraft:glass", "minecraft:stone_bricks"]);
-    const sym = Object.entries(out.legend).find(([, v]) => v === "minecraft:stone_bricks")?.[0] as string;
-    const layer0 = out.text.split("layer:0\n")[1]!.split("\n\n")[0]!.split("\n");
-    expect(layer0).toEqual(Array(5).fill(sym.repeat(5)));
+    expect(out.layers.map((l: { y: number }) => l.y)).toEqual([0, 1]);
+    expect(out.layers[0].rows).toEqual(Array(5).fill(sym(out.legend, "minecraft:stone_bricks").repeat(5)));
   });
 
   it("puts the glass at the centre of layer 1 and air inside the ring", () => {
-    const out = toLayeredText(spike);
-    const g = Object.entries(out.legend).find(([, v]) => v === "minecraft:glass")?.[0] as string;
-    const s = Object.entries(out.legend).find(([, v]) => v === "minecraft:stone_bricks")?.[0] as string;
-    const layer1 = out.text.split("layer:1\n")[1]!.trim().split("\n");
-    expect(layer1).toEqual([s.repeat(5), `${s}...${s}`, `${s}.${g}.${s}`, `${s}...${s}`, s.repeat(5)]);
+    const out = parse(spike);
+    const g = sym(out.legend, "minecraft:glass");
+    const s = sym(out.legend, "minecraft:stone_bricks");
+    expect(out.layers[1].rows).toEqual([s.repeat(5), `${s}...${s}`, `${s}.${g}.${s}`, `${s}...${s}`, s.repeat(5)]);
   });
 
-  it("refuses more materials than symbols", () => {
-    let bp = newBlueprint("big");
-    const ops = Array.from({ length: 80 }, (_, i) => ({ op: "set" as const, at: [i, 0, 0] as [number, number, number], block: `mod:block_${i}` }));
-    bp = applyOps(bp, ops);
-    expect(() => toLayeredText(bp)).toThrow(/toBlocksJson/);
+  it("keeps blockstate in the legend, one symbol per state, and warns", () => {
+    const bp = applyOps(newBlueprint("s"), [
+      { op: "set", at: [0, 0, 0], block: "minecraft:oak_stairs[facing=north,half=top]" },
+      { op: "set", at: [1, 0, 0], block: "minecraft:oak_stairs[facing=south,half=top]" },
+    ]);
+    const out = toLayersJson(bp);
+    expect(Object.values(JSON.parse(out.text).legend)).toEqual([
+      { material: "minecraft:oak_stairs", meta: { state: { facing: "north", half: "top" } } },
+      { material: "minecraft:oak_stairs", meta: { state: { facing: "south", half: "top" } } },
+    ]);
+    expect(out.warnings).toHaveLength(1);
   });
 
-  it("warns about blockstate", () => {
-    const bp = applyOps(newBlueprint("s"), [{ op: "set", at: [0, 0, 0], block: "minecraft:oak_stairs[facing=north]" }]);
-    expect(toLayeredText(bp).warnings).toHaveLength(1);
+  it("leaves out layers with nothing in them", () => {
+    const bp = applyOps(newBlueprint("gap"), [
+      { op: "set", at: [0, 0, 0], block: "minecraft:stone" },
+      { op: "set", at: [0, 3, 0], block: "minecraft:stone" },
+    ]);
+    expect(parse(bp).layers.map((l: { y: number }) => l.y)).toEqual([0, 3]);
+  });
+
+  it("refuses more block states than symbols", () => {
+    const ops = Array.from({ length: 100 }, (_, i) => ({ op: "set" as const, at: [i, 0, 0] as [number, number, number], block: `mod:block_${i}` }));
+    expect(() => toLayersJson(applyOps(newBlueprint("big"), ops))).toThrow(/toBlocksJson/);
   });
 });
 
@@ -58,6 +70,14 @@ describe("toBlocksJson", () => {
     expect(parsed.blocks).toEqual([
       { x: 0, y: 0, z: 0, material: "minecraft:oak_stairs", meta: { state: { facing: "north", half: "top" } } },
     ]);
+  });
+});
+
+describe("exportSchema", () => {
+  it("uses layers when the states fit and a block list when they do not", () => {
+    expect(JSON.parse(exportSchema(spike).text).layers).toBeDefined();
+    const ops = Array.from({ length: 100 }, (_, i) => ({ op: "set" as const, at: [i, 0, 0] as [number, number, number], block: `mod:block_${i}` }));
+    expect(JSON.parse(exportSchema(applyOps(newBlueprint("big"), ops)).text).blocks).toHaveLength(100);
   });
 });
 
