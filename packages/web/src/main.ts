@@ -12,15 +12,9 @@ import { initPalette, selectSlot } from "./palette";
 import { createBuilder } from "./build";
 import { WHEEL, blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelAngle, wheelSlice, type Box, type Clip } from "./wand";
 
-// Shape of the /api/blueprint response; the report is computed server-side by @tb/tester.
-interface Report {
-  planned: number; built: number; fuelUsed: number; moves: number; extra: number; complete: boolean;
-  missing: Array<{ at: [number, number, number]; block: string }>;
-  wrong: Array<{ at: [number, number, number]; expected: string; actual: string }>;
-  failures: Record<string, number>;
-}
-interface Payload { blueprint: Blueprint; report: Report | null; version: string }
-interface FileInfo { name: string; description?: string; blocks: number; size: [number, number, number] | null; modified: number; tested: boolean }
+// Shape of the /api/blueprint response.
+interface Payload { blueprint: Blueprint; version: string }
+interface FileInfo { name: string; description?: string; blocks: number; size: [number, number, number] | null; modified: number }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -98,7 +92,6 @@ const colorOf = (block: string): THREE.Color => {
   return new THREE.Color().setHSL((h % 360) / 360, 0.45, 0.55);
 };
 
-const unit = new THREE.BoxGeometry(1, 1, 1);
 const group = new THREE.Group();
 scene.add(group);
 let current: Payload | null = null;
@@ -112,7 +105,7 @@ let framed = "";
 function render() {
   group.clear();
   if (!current) return;
-  const { blueprint: bp, report } = current;
+  const { blueprint: bp } = current;
   const maxY = Number($<HTMLInputElement>("slice").value);
   const shown = bp.blocks.filter((b) => b[1] <= maxY);
   solidCells = new Set(shown.map((b) => `${b[0]},${b[1]},${b[2]}`));
@@ -137,22 +130,11 @@ function render() {
   void ensureBlocks(byBlock.keys()).then((fresh) => {
     if (fresh && token === renderToken) { dropFallbackMaterials(); render(); }
   });
-  if (report && $<HTMLInputElement>("ghosts").checked) {
-    const ghost = (cells: Array<[number, number, number]>, color: number) => {
-      const cells2 = cells.filter((c) => c[1] <= maxY);
-      if (!cells2.length) return;
-      const mesh = new THREE.InstancedMesh(unit, new THREE.MeshBasicMaterial({ color, wireframe: true }), cells2.length);
-      cells2.forEach(([x, y, z], i) => mesh.setMatrixAt(i, m.makeTranslation(x, y, z)));
-      group.add(mesh);
-    };
-    ghost(report.missing.map((r) => r.at), 0xd23b2a);
-    ghost(report.wrong.map((r) => r.at), 0xe08a00);
-  }
 }
 
 function sidebar() {
   if (!current) return;
-  const { blueprint: bp, report } = current;
+  const { blueprint: bp } = current;
   const ys = bp.blocks.map((b) => b[1]);
   const lo = Math.min(...ys), hi = Math.max(...ys);
   const slice = $<HTMLInputElement>("slice");
@@ -162,19 +144,6 @@ function sidebar() {
   if (wasTop || Number(slice.value) < lo || Number(slice.value) > hi) slice.value = String(hi);
   $("sliceLabel").textContent = bp.blocks.length ? `showing y ${lo} to ${slice.value} of ${hi}` : "empty blueprint";
   prep(bp);
-  const r = $("report");
-  if (!report) {
-    r.textContent = "No test run yet. Ask Claude to run test_run_build.";
-    return;
-  }
-  const fails = Object.entries(report.failures).map(([k, n]) => `${k} x${n}`).join(", ");
-  r.innerHTML = "";
-  const head = document.createElement("div");
-  head.className = report.complete ? "pass" : "fail";
-  head.textContent = `${report.complete ? "PASS" : "FAIL"}: built ${report.built} of ${report.planned}`;
-  const body = document.createElement("div");
-  body.textContent = `fuel ${report.fuelUsed}, moves ${report.moves}; missing ${report.missing.length}, wrong ${report.wrong.length}, extra ${report.extra}` + (fails ? `; failures: ${fails}` : "");
-  r.append(head, body);
 }
 
 // Gathering ticks are a per-browser convenience; storage may be unavailable.
@@ -289,12 +258,6 @@ async function refreshList() {
     nm.className = "name";
     nm.textContent = f.name;
     t.append(nm);
-    if (f.tested) {
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = "tested";
-      t.append(tag);
-    }
     const meta = document.createElement("div");
     meta.className = "meta";
     meta.textContent = describeFile(f);
@@ -410,7 +373,6 @@ function copied(id: string, text: string) {
   ).then(() => setTimeout(() => { b.textContent = label; }, 1200));
 }
 $("slice").addEventListener("input", () => { sidebar(); render(); });
-$("ghosts").addEventListener("change", render);
 
 // Files on disk are the source of truth; poll for edits from Claude or a test run.
 setInterval(() => { void refreshList().then(async () => { if (selected) await load(selected); }); }, 1500);

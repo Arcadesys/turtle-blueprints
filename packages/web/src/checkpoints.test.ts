@@ -10,7 +10,7 @@ const toolResult = (id: string, text: string, is_error = false) => ({
 describe("checkpoints", () => {
   it("labels tool calls in plain words", () => {
     expect(toolLabel("mcp__turtle-blueprints__blueprint_get")).toBe("Reading the blueprint");
-    expect(toolLabel("mcp__turtle-blueprints__test_run_build")).toBe("Running the turtle test");
+    expect(toolLabel("mcp__turtle-blueprints__blueprint_validate")).toBe("Validating");
     expect(toolLabel("mcp__turtle-blueprints__something_new")).toBe("something_new");
   });
 
@@ -31,9 +31,9 @@ describe("checkpoints", () => {
     ]);
     applyEvent(j, toolResult("t1", "hut: 120 blocks, 5x4x5\nmore detail"), 3);
     expect(j.checkpoints[2]).toMatchObject({ state: "ok", detail: "hut: 120 blocks, 5x4x5" });
-    applyEvent(j, assistant({ type: "tool_use", id: "t2", name: "mcp__turtle-blueprints__test_run_build", input: {} }), 4);
-    applyEvent(j, toolResult("t2", "needs 20 slots", true), 5);
-    expect(j.checkpoints[3]).toMatchObject({ text: "Running the turtle test", state: "error", detail: "needs 20 slots" });
+    applyEvent(j, assistant({ type: "tool_use", id: "t2", name: "mcp__turtle-blueprints__blueprint_validate", input: {} }), 4);
+    applyEvent(j, toolResult("t2", "error: floating block", true), 5);
+    expect(j.checkpoints[3]).toMatchObject({ text: "Validating", state: "error", detail: "error: floating block" });
     applyEvent(j, { type: "result", result: "Built a hut.", is_error: false }, 6);
     expect(j.result).toBe("Built a hut.");
     expect(j.status).toBe("running"); // the process exit decides done

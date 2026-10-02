@@ -11,8 +11,6 @@ export interface Settings {
   blueprints?: string;
   /** The claude CLI, when it is not found automatically. */
   claude?: string;
-  /** A cc-binaries checkout for turtle tests. */
-  ccBinaries?: string;
   /** Last ATM10 instance and client jar the block catalog was built from. */
   instance?: string;
   clientJar?: string;

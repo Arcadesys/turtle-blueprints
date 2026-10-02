@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { resolve } from "node:path";
-import { Store, applyTool, exportTool, gadgetsTool, getTool, listTool, manageTool, newTool, planTool, testTool, validateTool } from "./tools";
+import { Store, applyTool, exportTool, gadgetsTool, getTool, listTool, manageTool, newTool, planTool, validateTool } from "./tools";
 
 const store = new Store(resolve(process.env.TB_BLUEPRINTS ?? "blueprints"));
 const server = new McpServer({ name: "turtle-blueprints", version: "0.1.0" });
@@ -92,7 +92,7 @@ server.registerTool(
 server.registerTool(
   "blueprint_export_cc",
   {
-    description: "Export to a cc-factory schema (JSON: a legend and one row string per z, layer by layer; a block list when there are too many block states). Writes outPath (use .json) if given.",
+    description: "Export the schema a turtle builds from: a Building Gadgets 2 template, which cc-factory reads and BG2's Template Manager pastes. Writes outPath (use .json) if given.",
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => exportTool(store, a))(),
@@ -103,21 +103,10 @@ server.registerTool(
   {
     description:
       "Export as a Building Gadgets 2 template (the JSON the Template Manager pastes from the clipboard). Keeps blockstate. " +
-      "Writes outPath, default <blueprints>/exports/<name>.bg2.json.",
+      "Writes outPath, default <blueprints>/exports/<name>.bg2.json. The same file is what turtles build from (blueprint_export_cc).",
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => gadgetsTool(store, a))(),
-);
-
-server.registerTool(
-  "test_run_build",
-  {
-    description:
-      "Run the blueprint through a simulated turtle (turtlesim + cc-factory) and report built vs planned blocks, fuel used and failures. " +
-      "The whole build must fit in the turtle's 16 inventory slots (about 1000 blocks). Needs CraftOS-PC and a cc-binaries checkout (CC_BINARIES).",
-    inputSchema: { name, timeoutSec: z.number().positive().optional() },
-  },
-  (a) => guard(() => testTool(store, { ...a, ccBinaries: process.env.CC_BINARIES }))(),
 );
 
 void server.connect(new StdioServerTransport());

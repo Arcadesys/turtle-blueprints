@@ -6,8 +6,7 @@ import {
 } from "@tb/blueprint";
 import { Store } from "@tb/blueprint/store";
 import { gadgetsCells, toGadgetsJson } from "@tb/blueprint/gadgets";
-import { exportSchema, normalise } from "@tb/cc-bridge";
-import { formatReport, runBuildTest } from "@tb/tester";
+import { exportSchema } from "@tb/cc-bridge";
 
 export { Store };
 
@@ -64,27 +63,15 @@ export function exportTool(store: Store, a: { name: string; outPath?: string }):
     const p = resolve(a.outPath);
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, out.text);
-    return [`wrote cc-factory schema to ${p}`, ...warn].join("\n");
+    return [`wrote Building Gadgets 2 template to ${p}`, ...warn].join("\n");
   }
   return [out.text, ...warn].join("\n");
-}
-
-export async function testTool(store: Store, a: { name: string; timeoutSec?: number; ccBinaries?: string }): Promise<string> {
-  const bp = store.load(a.name);
-  const errors = validate(bp).filter((i) => i.level === "error");
-  if (errors.length) return "fix validation errors first:\n" + errors.map((e) => e.message).join("\n");
-  const r = await runBuildTest(normalise(bp), {
-    ccBinaries: a.ccBinaries,
-    timeoutSec: a.timeoutSec,
-    workDir: join(store.dir, ".test", a.name),
-  });
-  return [formatReport(r.report), `results: ${r.resultsDir}`].join("\n");
 }
 
 export function listTool(store: Store): string {
   const live = store.list().map((n) => {
     const i = store.info(n);
-    return `${n}: ${i.blocks} blocks, ${i.size ? i.size.join("x") : "empty"}${i.tested ? ", tested" : ""}${i.description ? ` - ${i.description}` : ""}`;
+    return `${n}: ${i.blocks} blocks, ${i.size ? i.size.join("x") : "empty"}${i.description ? ` - ${i.description}` : ""}`;
   });
   const archived = store.listArchived();
   return [

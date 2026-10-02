@@ -101,7 +101,6 @@ export function generatePrompt(a: {
     "2. blueprint_apply to make the change.",
     "3. blueprint_validate and fix any errors.",
     `4. blueprint_export_cc with outPath "${a.exportDir}/${a.name}.json".`,
-    "5. test_run_build. If the turtle test fails because of the design, fix it and run the test again, at most 3 runs.",
-    "Finish with two or three plain sentences: what you built, the test result, and where the export is.",
+    "Finish with two or three plain sentences: what you built and where the export is.",
   ].join("\n");
 }
