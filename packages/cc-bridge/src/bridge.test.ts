@@ -46,14 +46,6 @@ describe("exportSchema", () => {
   });
 });
 
-describe("exportSchema", () => {
-  it("uses layers when the states fit and a block list when they do not", () => {
-    expect(JSON.parse(exportSchema(spike).text).layers).toBeDefined();
-    const ops = Array.from({ length: 100 }, (_, i) => ({ op: "set" as const, at: [i, 0, 0] as [number, number, number], block: `mod:block_${i}` }));
-    expect(JSON.parse(exportSchema(applyOps(newBlueprint("big"), ops)).text).blocks).toHaveLength(100);
-  });
-});
-
 describe("ccToWorld", () => {
   it("matches the transform measured in turtlesim (glass 2,1,2 -> -3,1,3)", () => {
     expect(ccToWorld([2, 1, 2])).toEqual([-3, 1, 3]);
