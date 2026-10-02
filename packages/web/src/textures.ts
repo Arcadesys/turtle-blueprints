@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { baseId, pickVariant, type WireBlocks, type WireEntry, type WireVariant } from "@tb/blueprint";
+import { baseId } from "@tb/blueprint";
+import { pickVariant, type WireBlocks, type WireEntry, type WireVariant } from "@tb/blueprint/editor";
 
 /** Block catalog entries the viewer has fetched so far, keyed by base block id. */
 const entries = new Map<string, WireEntry>();

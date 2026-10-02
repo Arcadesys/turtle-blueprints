@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
-import type { Catalog, CatalogEntry, Faces, Variant } from "@tb/blueprint";
+import type { Catalog, CatalogEntry, Faces, Variant } from "@tb/blueprint/editor";
 
 type Json = Record<string, any>;
 

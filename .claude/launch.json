@@ -4,7 +4,12 @@
     {
       "name": "viewer",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "@tb/web"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@tb/web"
+      ],
       "port": 5173
     }
   ]

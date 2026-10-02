@@ -1,4 +1,5 @@
-import { baseId, type WireBlocks } from "@tb/blueprint";
+import { baseId } from "@tb/blueprint";
+import type { WireBlocks } from "@tb/blueprint/editor";
 import { ensureBlocks, entryOf, iconOf, rememberSearch, textureUrl } from "./textures";
 
 const DEFAULT_HOTBAR = ["minecraft:stone", "minecraft:stone_bricks", "minecraft:oak_planks", "minecraft:glass", "minecraft:oak_log", "minecraft:oak_stairs", "minecraft:stone_slab", "minecraft:torch", "minecraft:dirt"];

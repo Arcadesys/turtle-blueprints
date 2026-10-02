@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { strToU8, zipSync } from "fflate";
-import { pickVariant, searchCatalog } from "@tb/blueprint";
+import { pickVariant, searchCatalog } from "@tb/blueprint/editor";
 import { addJar, buildCatalog, newSources, pngFrames, writeAssets } from "./extract";
 
 const j = (v: unknown) => strToU8(JSON.stringify(v));
