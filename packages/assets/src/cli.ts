@@ -19,7 +19,9 @@ function main() {
       bar = !!total;
     },
   });
-  console.log(`wrote ${r.blocks} blocks and ${r.textures} textures to ${out}`);
+  console.log(`wrote ${r.blocks} blocks (${r.lit} give off light) and ${r.textures} textures to ${out}`);
+  console.log(`lighting: ambient ${r.env.ambient}, sky #${r.env.sky.toString(16)}, gamma ${r.env.gamma}, smooth ${r.env.smooth}`);
+  if (r.unresolved.length) console.log(`light level not followed for ${r.unresolved.length}: ${r.unresolved.slice(0, 20).join(", ")}${r.unresolved.length > 20 ? ", ..." : ""}`);
 }
 
 main();

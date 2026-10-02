@@ -69,6 +69,15 @@ describe("asset extractor", () => {
   it("detects half slabs", () => {
     expect(buildCatalog(world()).catalog.blocks["minecraft:stone_slab"]!.v["type=bottom"]!.s).toBe("bottom");
   });
+  it("marks variants light passes through, and takes emission from the code per state", () => {
+    const light = new Map([["minecraft:oak_log", { emit: (s: Record<string, string>) => (s.axis === "y" ? 7 : 0) }]]);
+    const { catalog } = buildCatalog(world(), light);
+    expect(catalog.blocks["minecraft:stone_slab"]!.v["type=bottom"]!.t).toBe(1); // not a full cube
+    const log = catalog.blocks["minecraft:oak_log"]!;
+    expect(log.v["axis=y"]).toMatchObject({ l: 7 });
+    expect(log.v["axis=y"]!.t).toBeUndefined();
+    expect(log.v["axis=x"]!.l).toBeUndefined();
+  });
   it("uses the particle texture when a modded model has no elements", () => {
     const { catalog } = buildCatalog(world());
     const v = catalog.blocks["mekanism:steel_casing"]!.v[""]!;

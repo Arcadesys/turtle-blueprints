@@ -5,9 +5,10 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
-import type { Catalog, CatalogEntry, Faces, Variant } from "@tb/blueprint/editor";
+import { DEFAULT_LIGHT_ENV, type Catalog, type CatalogEntry, type Faces, type LightEnv, type Variant } from "@tb/blueprint/editor";
+import { classLoader, scanMod, scanVanilla, type ClassLoader, type CodeLight } from "./light";
 
 type Json = Record<string, any>;
 
@@ -122,7 +123,7 @@ const volume = (e: Json) => {
 };
 
 /** Turn a resolved model into six face textures plus a slab shape. Largest elements win per face. */
-function modelFaces(m: Resolved): { faces: Array<string | null>; shape?: "bottom" | "top" } {
+function modelFaces(m: Resolved): { faces: Array<string | null>; shape?: "bottom" | "top"; full: boolean } {
   const faces: Array<string | null> = DIRS.map((): string | null => null);
   const els = m.elements.filter((e) => Array.isArray(e.from) && Array.isArray(e.to) && e.faces).sort((a, b) => volume(b) - volume(a));
   for (const e of els) {
@@ -141,7 +142,8 @@ function modelFaces(m: Resolved): { faces: Array<string | null>; shape?: "bottom
     if (big.length && big.every((e) => (e.to as number[])[1]! <= 8)) shape = "bottom";
     else if (big.length && big.every((e) => (e.from as number[])[1]! >= 8)) shape = "top";
   }
-  return { faces, shape };
+  const full = els.some((e) => (e.from as number[]).every((v) => v <= 0) && (e.to as number[]).every((v) => v >= 16));
+  return { faces, shape, full };
 }
 
 function pickApply(v: Json | Json[] | undefined): Json | undefined {
@@ -172,7 +174,23 @@ function collectProps(bs: Json): Record<string, string[]> {
 
 const titleCase = (path: string) => path.split(/[/_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
-export function buildCatalog(src: Sources): { catalog: Catalog; used: string[] } {
+const parseKey = (key: string) =>
+  Object.fromEntries(key.split(",").filter((kv) => kv.includes("=")).map((kv) => kv.split("=") as [string, string]));
+
+/** Light for one variant: emission from the code, and whether light passes through. */
+function variantLight(code: CodeLight | undefined, key: string, full: boolean, props: Record<string, string[]>): Pick<Variant, "l" | "t"> {
+  const out: Pick<Variant, "l" | "t"> = {};
+  if (!full || code?.noOcclusion) out.t = 1;
+  if (code?.emit) {
+    // A state key may leave properties out (multipart blocks): fill them with each property's first value.
+    const state = { ...Object.fromEntries(Object.entries(props).map(([k, v]) => [k, v[0]!])), ...parseKey(key) };
+    const l = code.emit(state);
+    if (l) out.l = l;
+  }
+  return out;
+}
+
+export function buildCatalog(src: Sources, light?: Map<string, CodeLight>): { catalog: Catalog; used: string[] } {
   const textures: string[] = [];
   const texIndex = new Map<string, number>();
   const tex = (id: string | null): number => {
@@ -194,6 +212,8 @@ export function buildCatalog(src: Sources): { catalog: Catalog; used: string[] }
     const lang = src.json.get(`assets/${ns}/lang/en_us.json`);
     const display = lang?.[`block.${ns}.${path.replace(/\//g, ".")}`];
     const v: Record<string, Variant> = {};
+    const props = collectProps(bs);
+    const code = light?.get(`${ns}:${path}`);
 
     const addVariant = (key: string, apply: Json | undefined) => {
       if (!apply || typeof apply.model !== "string") return;
@@ -202,7 +222,7 @@ export function buildCatalog(src: Sources): { catalog: Catalog; used: string[] }
       const r = modelFaces(model);
       const f = r.faces.map(tex) as Faces;
       if (f.every((i) => i < 0)) return;
-      v[key] = { f, ...(r.shape ? { s: r.shape } : {}), ...(apply.x ? { x: apply.x } : {}), ...(apply.y ? { y: apply.y } : {}) };
+      v[key] = { f, ...(r.shape ? { s: r.shape } : {}), ...(apply.x ? { x: apply.x } : {}), ...(apply.y ? { y: apply.y } : {}), ...variantLight(code, key, r.full, props) };
     };
 
     if (bs.variants) for (const [key, val] of Object.entries(bs.variants)) addVariant(key === "normal" ? "" : key, pickApply(val as Json));
@@ -211,7 +231,6 @@ export function buildCatalog(src: Sources): { catalog: Catalog; used: string[] }
       const part = bs.multipart.find((p: Json) => !p.when) ?? bs.multipart[0];
       addVariant("", pickApply(part?.apply));
     }
-    const props = collectProps(bs);
     blocks[`${ns}:${path}`] = {
       n: typeof display === "string" ? display : titleCase(path),
       ...(Object.keys(props).length ? { p: props } : {}),
@@ -229,8 +248,9 @@ export function pngFrames(png: Uint8Array): number {
   return w > 0 && h > w && h % w === 0 ? h / w : 1;
 }
 
-export function writeAssets(src: Sources, outDir: string): { blocks: number; textures: number } {
-  const { catalog } = buildCatalog(src);
+export function writeAssets(src: Sources, outDir: string, light?: Map<string, CodeLight>, env?: LightEnv): { blocks: number; textures: number; lit: number } {
+  const { catalog } = buildCatalog(src, light);
+  if (env) catalog.env = env;
   const bySource = new Map<number, Set<string>>();
   for (const id of catalog.textures) {
     const [ns, path] = split(id);
@@ -251,7 +271,59 @@ export function writeAssets(src: Sources, outDir: string): { blocks: number; tex
   });
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, "catalog.json"), JSON.stringify(catalog));
-  return { blocks: Object.keys(catalog.blocks).length, textures: catalog.textures.length };
+  const lit = Object.values(catalog.blocks).filter((b) => Object.values(b.v).some((x) => x.l)).length;
+  return { blocks: Object.keys(catalog.blocks).length, textures: catalog.textures.length, lit };
+}
+
+/** Blockstate namespaces in a jar, plus its classes. */
+export function jarClasses(bytes: Uint8Array): { classes: Map<string, Uint8Array>; namespaces: string[] } {
+  const ns = new Set<string>();
+  const files = unzipSync(bytes, {
+    filter: (f) => {
+      const m = /^assets\/([^/]+)\/blockstates\//.exec(f.name);
+      if (m) ns.add(m[1]!);
+      return f.name.endsWith(".class") && !f.name.startsWith("META-INF/");
+    },
+  });
+  return { classes: new Map(Object.entries(files)), namespaces: [...ns] };
+}
+
+/**
+ * The deobfuscated (Mojang-named) client classes NeoForge installs: its patched classes first,
+ * then the rest of the client. The plain versions/<v>/<v>.jar is obfuscated and cannot be read this way.
+ */
+function codeJars(install: string): string[] {
+  if (process.env.MC_CODE_JARS) return process.env.MC_CODE_JARS.split(":");
+  const newest = (dir: string, re: RegExp) => {
+    if (!existsSync(dir)) return [];
+    const vs = readdirSync(dir).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).reverse();
+    for (const v of vs) {
+      const f = existsSync(join(dir, v)) && statSync(join(dir, v)).isDirectory() ? readdirSync(join(dir, v)).find((n) => re.test(n)) : undefined;
+      if (f) return [join(dir, v, f)];
+    }
+    return [];
+  };
+  const libs = join(install, "libraries");
+  return [
+    ...newest(join(libs, "net/neoforged/neoforge"), /-client\.jar$/),
+    ...newest(join(libs, "net/minecraft/client"), /^client-1\.21\.1-.*-srg\.jar$/),
+  ];
+}
+
+/** ambient_light, the plains sky colour, and the player's Brightness and Smooth Lighting settings. */
+export function readEnv(clientJar: Uint8Array, optionsTxt: string | null): LightEnv {
+  const data = unzipSync(clientJar, { filter: (f) => f.name === "data/minecraft/dimension_type/overworld.json" || f.name === "data/minecraft/worldgen/biome/plains.json" });
+  const json = (n: string) => { try { return JSON.parse(strFromU8(data[n]!)) as Json; } catch { return {}; } };
+  const dim = json("data/minecraft/dimension_type/overworld.json");
+  const plains = json("data/minecraft/worldgen/biome/plains.json");
+  const opt = (k: string) => optionsTxt?.match(new RegExp(`^${k}:(.*)$`, "m"))?.[1]?.trim();
+  const gamma = Number(opt("gamma"));
+  return {
+    ambient: typeof dim.ambient_light === "number" ? dim.ambient_light : DEFAULT_LIGHT_ENV.ambient,
+    sky: typeof plains.effects?.sky_color === "number" ? plains.effects.sky_color : DEFAULT_LIGHT_ENV.sky,
+    gamma: Number.isFinite(gamma) && opt("gamma") !== undefined ? gamma : DEFAULT_LIGHT_ENV.gamma,
+    smooth: opt("ao") !== undefined ? opt("ao") === "true" : DEFAULT_LIGHT_ENV.smooth,
+  };
 }
 
 /** Where CurseForge and the vanilla launcher usually keep ATM10 and the 1.21.1 client jar on this OS. */
@@ -267,8 +339,21 @@ export function defaultPaths(home = homedir(), platform = process.platform, env 
   };
 }
 
-/** Read the client jar, the instance's mods and kubejs/assets, and write the catalog and textures to `out`. */
-export function buildAssets(a: { instance: string; clientJar: string; out: string; progress?: (msg: string, done?: number, total?: number) => void }) {
+export interface AssetsResult {
+  blocks: number;
+  textures: number;
+  /** Blocks that give off light in at least one state. */
+  lit: number;
+  env: LightEnv;
+  /** Blocks whose lightLevel could not be followed through the code. */
+  unresolved: string[];
+}
+
+/**
+ * Read the client jar, the instance's mods and kubejs/assets, and write the catalog and textures to `out`.
+ * Light levels come from the deobfuscated client NeoForge installs next to the client jar (or `codeJars`).
+ */
+export function buildAssets(a: { instance: string; clientJar: string; out: string; codeJars?: string[]; progress?: (msg: string, done?: number, total?: number) => void }): AssetsResult {
   const say = a.progress ?? (() => {});
   for (const p of [a.instance, a.clientJar]) if (!existsSync(p)) throw new Error(`not found: ${p}`);
   const mods = join(a.instance, "mods");
@@ -276,12 +361,39 @@ export function buildAssets(a: { instance: string; clientJar: string; out: strin
   const src = newSources();
   say(`vanilla ${a.clientJar}`);
   addJar(src, () => readFileSync(a.clientJar));
+  const optionsFile = join(a.instance, "options.txt");
+  const env = readEnv(readFileSync(a.clientJar), existsSync(optionsFile) ? readFileSync(optionsFile, "utf8") : null);
+
+  // Light levels live in code: read them from the deobfuscated client, then from each mod.
+  const light = new Map<string, CodeLight>();
+  const unresolved: string[] = [];
+  const code = a.codeJars ?? codeJars(resolve(a.clientJar, "../../.."));
+  let vanilla: ReturnType<typeof scanVanilla> | null = null;
+  let load: ClassLoader | null = null;
+  if (code.length) {
+    say(`code ${code.join(", ")}`);
+    load = classLoader(...code.map((j) => jarClasses(readFileSync(j)).classes));
+    vanilla = scanVanilla(load);
+    for (const [id, l] of vanilla.blocks) light.set(id, l);
+    unresolved.push(...vanilla.unresolved);
+  } else say("no deobfuscated client jar found (set MC_CODE_JARS): blocks will not give off light");
+  const known = (id: string) => { const i = id.indexOf(":"); return src.json.has(`assets/${id.slice(0, i)}/blockstates/${id.slice(i + 1)}.json`); };
+
   const jars = readdirSync(mods).filter((f) => f.endsWith(".jar")).sort();
   jars.forEach((j, i) => {
     say(j, i + 1, jars.length);
-    try { addJar(src, () => readFileSync(join(mods, j))); } catch (e) { say(`skipped ${j}: ${(e as Error).message}`); }
+    try {
+      const bytes = readFileSync(join(mods, j));
+      addJar(src, () => readFileSync(join(mods, j)));
+      if (load && vanilla) {
+        const { classes, namespaces } = jarClasses(bytes);
+        const r = scanMod(classes, load, vanilla.byField, namespaces, known);
+        for (const [id, l] of r.blocks) if (!light.has(id)) light.set(id, l);
+        unresolved.push(...r.unresolved);
+      }
+    } catch (e) { say(`skipped ${j}: ${(e as Error).message}`); }
   });
   addDir(src, join(a.instance, "kubejs", "assets"));
   say("building catalog...");
-  return writeAssets(src, a.out);
+  return { ...writeAssets(src, a.out, light, env), env, unresolved };
 }

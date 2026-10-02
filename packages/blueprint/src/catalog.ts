@@ -12,7 +12,25 @@ export interface Variant {
   /** Model rotations in degrees (Minecraft blockstate x/y). */
   x?: number;
   y?: number;
+  /** Light the block gives off in this state, 1-15 (from the game code's lightLevel). */
+  l?: number;
+  /** 1 when light passes through: not a full cube, or noOcclusion in the game code. */
+  t?: 1;
 }
+
+/** World lighting settings read from the game data and the instance's options.txt. */
+export interface LightEnv {
+  /** dimension_type/overworld.json ambient_light. */
+  ambient: number;
+  /** worldgen/biome/plains.json effects.sky_color, as 0xRRGGBB. */
+  sky: number;
+  /** options.txt gamma (the Brightness slider: 0 moody, 1 bright). */
+  gamma: number;
+  /** options.txt ao (Smooth Lighting). */
+  smooth: boolean;
+}
+
+export const DEFAULT_LIGHT_ENV: LightEnv = { ambient: 0, sky: 0x78a7ff, gamma: 0.5, smooth: true };
 
 export interface CatalogEntry {
   /** English display name. */
@@ -30,6 +48,8 @@ export interface Catalog {
   /** Texture index -> animation frame count, when more than one. */
   frames: Record<number, number>;
   blocks: Record<string, CatalogEntry>;
+  /** Lighting settings, when the extractor found them. */
+  env?: LightEnv;
 }
 
 function parseState(block: string): Array<[string, string]> {
@@ -83,7 +103,7 @@ export function searchCatalog(blocks: Record<string, CatalogEntry>, query: strin
 }
 
 /** A catalog entry as sent to the viewer: face texture ids instead of indices. */
-export interface WireVariant { f: Array<string | null>; s?: "bottom" | "top"; x?: number; y?: number }
+export interface WireVariant { f: Array<string | null>; s?: "bottom" | "top"; x?: number; y?: number; l?: number; t?: 1 }
 export interface WireEntry { n: string; p?: Props; v: Record<string, WireVariant> }
 export interface WireBlocks {
   blocks: Record<string, WireEntry>;
@@ -107,6 +127,8 @@ export function toWire(cat: Catalog, ids: Array<{ id: string; entry: CatalogEntr
         ...(variant.s ? { s: variant.s } : {}),
         ...(variant.x ? { x: variant.x } : {}),
         ...(variant.y ? { y: variant.y } : {}),
+        ...(variant.l ? { l: variant.l } : {}),
+        ...(variant.t ? { t: variant.t } : {}),
       };
     }
     blocks[id] = { n: entry.n, ...(entry.p ? { p: entry.p } : {}), v };

@@ -142,6 +142,12 @@
   <h2>Layers</h2>
   <input id="slice" type="range" min="0" max="0" value="0" aria-label="Show layers up to">
   <div id="sliceLabel" class="note"></div>
+  <h2>Lighting</h2>
+  <input id="time" type="range" min="0" max="23999" step="250" value="6000" aria-label="Time of day" aria-describedby="timeLabel">
+  <div id="timeLabel" class="note"></div>
+  <div class="row"><button id="tNoon">Noon</button><button id="tSunset">Sunset</button><button id="tNight">Midnight</button></div>
+  <label class="chk"><input id="smooth" type="checkbox" checked> Smooth lighting</label>
+  <div id="lightNote" class="note"></div>
   <h2>Build prep</h2>
   <div id="slots" class="note"></div>
   <div id="meter" class="meter"><div></div></div>

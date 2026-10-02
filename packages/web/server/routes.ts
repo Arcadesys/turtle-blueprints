@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyOps, newBlueprint, validate, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
-import { searchCatalog, toWire, type Catalog } from "@tb/blueprint/editor";
+import { DEFAULT_LIGHT_ENV, searchCatalog, toWire, type Catalog } from "@tb/blueprint/editor";
 import { Store } from "@tb/blueprint/store";
 import { exportSchema } from "@tb/cc-bridge";
 import { diffBuild, type TurtleSummary } from "@tb/tester";
@@ -147,6 +147,7 @@ export function createApi(opts: ApiOptions): { api: Handler; textures: Handler }
         res.end(JSON.stringify(v));
       };
       try {
+        if (url.pathname === "/blocks/env") return json(loadCatalog()?.env ?? DEFAULT_LIGHT_ENV);
         if (url.pathname === "/blocks" || url.pathname === "/blocks/lookup") {
           const cat = loadCatalog();
           if (!cat) return json({ error: opts.noCatalog, blocks: {}, frames: {}, order: [] });
