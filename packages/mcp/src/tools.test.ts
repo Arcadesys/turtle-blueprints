@@ -82,7 +82,7 @@ describe("gadgets export tool", () => {
     newTool(s, { name: "g" });
     applyTool(s, { name: "g", ops: [{ op: "set", at: [0, 0, 0], block: "minecraft:stone" }] });
     const out = gadgetsTool(s, { name: "g" });
-    expect(out).toContain("exports/g.bg2.json");
+    expect(out).toContain(join("exports", "g.bg2.json"));
     const t = JSON.parse(readFileSync(join(s.dir, "exports", "g.bg2.json"), "utf8"));
     expect(t.statePosArrayList).toContain("statelist:[I;1]");
   });

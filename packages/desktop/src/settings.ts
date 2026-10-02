@@ -4,7 +4,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface Settings {
   /** Folder of .blueprint.json files. */
@@ -50,7 +50,7 @@ export function loginShellPath(platform = process.platform, env = process.env): 
 export function claudeCandidates(a: { configured?: string; path?: string; home: string; platform?: NodeJS.Platform; appData?: string }): string[] {
   const win = (a.platform ?? process.platform) === "win32";
   const names = win ? ["claude.exe", "claude.cmd"] : ["claude"];
-  const dirs = (a.path ?? "").split(win ? ";" : delimiter).filter(Boolean);
+  const dirs = (a.path ?? "").split(win ? ";" : ":").filter(Boolean);
   const known = win
     ? [join(a.home, ".local", "bin"), join(a.home, ".claude", "local"), join(a.appData ?? join(a.home, "AppData", "Roaming"), "npm")]
     : [join(a.home, ".local", "bin"), join(a.home, ".claude", "local"), "/opt/homebrew/bin", "/usr/local/bin"];

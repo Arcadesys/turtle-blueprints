@@ -4,12 +4,13 @@
  * app's user data folder and are changed from the menus.
  */
 import { createServer, type Server } from "node:http";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { Worker } from "node:worker_threads";
 import { app, BrowserWindow, clipboard, dialog, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { defaultPaths } from "@tb/assets";
+import { CATALOG_VERSION } from "@tb/blueprint/editor";
 import { createApi } from "../../web/server/routes";
 import { findClaude, loadSettings, loginShellPath, saveSettings, type Settings } from "./settings";
 
@@ -18,6 +19,19 @@ const dist = __dirname;
 const unpacked = (f: string) => join(dist, f).replace(`app.asar${sep}`, `app.asar.unpacked${sep}`);
 const settingsFile = () => join(app.getPath("userData"), "settings.json");
 const assetsDir = () => join(app.getPath("userData"), "assets");
+
+/** The catalog's version, read from the start of the file (it is large), or 0 when there is none. */
+function catalogVersion(): number {
+  try {
+    const fd = openSync(join(assetsDir(), "catalog.json"), "r");
+    const head = Buffer.alloc(64);
+    readSync(fd, head, 0, head.length, 0);
+    closeSync(fd);
+    return Number(/"version":(\d+)/.exec(head.toString("utf8"))?.[1] ?? 0);
+  } catch {
+    return 0;
+  }
+}
 
 let settings: Settings = {};
 let win: BrowserWindow | null = null;
@@ -268,11 +282,14 @@ if (!app.requestSingleInstanceLock()) {
     await startServer();
     buildMenu();
     createWindow();
-    if (!existsSync(join(assetsDir(), "catalog.json"))) {
+    const version = catalogVersion();
+    if (version < CATALOG_VERSION) {
       win!.webContents.once("did-finish-load", async () => {
         const r = await dialog.showMessageBox(win!, {
-          type: "info", message: "Build the block catalog?",
-          detail: "Turtle Blueprints draws blocks with real textures and searches every block in your modpack. It reads them once from your local ATM10 install. You can do this later from Tools › Build Block Catalog.",
+          type: "info", message: version ? "Rebuild the block catalog?" : "Build the block catalog?",
+          detail: version
+            ? "Your block catalog is from an older version of Turtle Blueprints and is missing newer details, such as how much light each block gives off. You can do this later from Tools › Build Block Catalog."
+            : "Turtle Blueprints draws blocks with real textures and searches every block in your modpack. It reads them once from your local ATM10 install. You can do this later from Tools › Build Block Catalog.",
           buttons: ["Build Now", "Later"], defaultId: 0, cancelId: 1,
         });
         if (r.response === 0) void buildCatalog();
