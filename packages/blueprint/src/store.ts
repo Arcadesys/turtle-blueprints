@@ -11,14 +11,11 @@ export interface FileInfo {
   blocks: number;
   size: [number, number, number] | null;
   modified: number;
-  /** A turtle test has been run (results live in .test/<name>). */
-  tested: boolean;
 }
 
 /**
  * Blueprint files on disk are the source of truth. Archived files move to
- * `.archive/` (never deleted) so they can be restored. Test output for a
- * blueprint lives in `.test/<name>/` and follows it on rename.
+ * `.archive/` (never deleted) so they can be restored.
  */
 export class Store {
   readonly dir: string;
@@ -73,7 +70,6 @@ export class Store {
       blocks: bp.blocks.length,
       size: bb ? bb.size : null,
       modified: statSync(this.path(name)).mtimeMs,
-      tested: existsSync(join(this.dir, ".test", name, "results", "summary.json")),
     };
   }
 
@@ -96,8 +92,6 @@ export class Store {
     this.free(to);
     this.save({ ...bp, name: to });
     rmSync(this.path(from));
-    const test = join(this.dir, ".test", from);
-    if (existsSync(test)) renameSync(test, join(this.dir, ".test", to));
   }
 
   duplicate(from: string, to: string): void {
@@ -118,8 +112,6 @@ export class Store {
     if (!existsSync(p)) throw new Error(`no blueprint named "${name}"`);
     mkdirSync(this.archiveDir, { recursive: true });
     renameSync(p, this.path(name, this.archiveDir));
-    const test = join(this.dir, ".test", name);
-    if (existsSync(test)) rmSync(test, { recursive: true });
   }
 
   restore(name: string): void {

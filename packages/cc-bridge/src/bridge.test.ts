@@ -1,22 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { applyOps, newBlueprint } from "@tb/blueprint";
-import { ccToWorld, exportSchema, normalise, TURTLE_DISK_BYTES } from "./index";
+import { exportSchema, TURTLE_DISK_BYTES } from "./index";
 
-// Same shape as the 5x5 spike run through turtlesim.
+// A 5x5 spike: a stone brick floor, a ring above it and glass in the middle.
 const spike = applyOps(newBlueprint("spike"), [
   { op: "fill", from: [10, 5, 20], to: [14, 5, 24], block: "minecraft:stone_bricks" },
   { op: "fill", from: [10, 6, 20], to: [14, 6, 24], block: "minecraft:stone_bricks", mode: "outline" },
   { op: "set", at: [12, 6, 22], block: "minecraft:glass" },
 ]);
-
-describe("normalise", () => {
-  it("moves the minimum corner to 0,0,0", () => {
-    const n = normalise(spike);
-    expect(Math.min(...n.blocks.map((b) => b[0]))).toBe(0);
-    expect(Math.min(...n.blocks.map((b) => b[1]))).toBe(0);
-    expect(Math.min(...n.blocks.map((b) => b[2]))).toBe(0);
-  });
-});
 
 describe("exportSchema", () => {
   it("is the Building Gadgets 2 template, cells relative to the minimum corner", () => {
@@ -43,13 +34,5 @@ describe("exportSchema", () => {
     ]);
     expect(exportSchema(big).text.length).toBeGreaterThan(TURTLE_DISK_BYTES);
     expect(exportSchema(big).warnings).toEqual([expect.stringMatching(/1 MB disk/)]);
-  });
-});
-
-describe("ccToWorld", () => {
-  it("matches the transform measured in turtlesim (glass 2,1,2 -> -3,1,3)", () => {
-    expect(ccToWorld([2, 1, 2])).toEqual([-3, 1, 3]);
-    expect(ccToWorld([0, 0, 0])).toEqual([-1, 0, 1]);
-    expect(ccToWorld([4, 0, 4])).toEqual([-5, 0, 5]);
   });
 });

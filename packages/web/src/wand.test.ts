@@ -47,7 +47,7 @@ describe("selector wand", () => {
     expect(p).toContain("1 x minecraft:glass");
     expect(p).toContain("add a chimney");
     expect(p).toContain('outPath "/tmp/exports/hut.json"');
-    expect(p).toContain("test_run_build");
+    expect(p).not.toContain("test_run_build");
   });
 
   it("maps a mouse flick to the wheel slice it points at", () => {

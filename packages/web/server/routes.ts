@@ -1,5 +1,5 @@
 /**
- * The viewer's backend: blueprint files, test reports, schema downloads, file management,
+ * The viewer's backend: blueprint files, schema downloads, file management,
  * the selector wand's actions, block search and textures. It is a plain Node request handler
  * so both the Vite dev server and the desktop app can host it.
  */
@@ -12,7 +12,6 @@ import { applyOps, newBlueprint, validate, type Blueprint, type Op, type Vec3 } 
 import { DEFAULT_LIGHT_ENV, searchCatalog, toWire, type Catalog } from "@tb/blueprint/editor";
 import { Store } from "@tb/blueprint/store";
 import { exportSchema } from "@tb/cc-bridge";
-import { diffBuild, type TurtleSummary } from "@tb/tester";
 import { applyEvent, type GenerateJob } from "../src/checkpoints";
 import { extract, generatePrompt, type Box } from "../src/wand";
 
@@ -63,7 +62,7 @@ export function createApi(opts: ApiOptions): { api: Handler; textures: Handler }
 
   /**
    * Generate: run headless Claude Code with only the turtle-blueprints MCP server, so it can
-   * edit, validate, export and turtle-test the blueprint but touch nothing else.
+   * edit, validate and export the blueprint but touch nothing else.
    * The prompt goes in on stdin and the MCP config in a file, so no argument needs shell quoting.
    */
   function generate(name: string, prompt: string): string {
@@ -249,15 +248,7 @@ export function createApi(opts: ApiOptions): { api: Handler; textures: Handler }
           return json({ ok: true });
         }
         if (!s.exists(name)) return json({ error: "not found" }, 404);
-        const blueprint = s.load(name);
-        const summaryFile = join(s.dir, ".test", name, "results", "summary.json");
-        let report = null;
-        let version = String(statSync(s.path(name)).mtimeMs);
-        if (existsSync(summaryFile)) {
-          report = diffBuild(blueprint, JSON.parse(readFileSync(summaryFile, "utf8")) as TurtleSummary);
-          version += ":" + statSync(summaryFile).mtimeMs;
-        }
-        return json({ blueprint, report, version });
+        return json({ blueprint: s.load(name), version: String(statSync(s.path(name)).mtimeMs) });
       } catch (e) {
         return json({ error: e instanceof Error ? e.message : String(e) }, 400);
       }

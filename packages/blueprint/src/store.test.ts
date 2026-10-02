@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -17,21 +17,11 @@ describe("store", () => {
     expect(s.load("cabin").name).toBe("cabin");
     s.duplicate("cabin", "cabin-2");
     expect(s.list()).toEqual(["cabin", "cabin-2"]);
-    expect(s.info("cabin-2")).toMatchObject({ blocks: 18, size: [3, 2, 3], description: "a small hut", tested: false });
+    expect(s.info("cabin-2")).toMatchObject({ blocks: 18, size: [3, 2, 3], description: "a small hut" });
     s.describe("cabin-2", "");
     expect(s.load("cabin-2").description).toBeUndefined();
     expect(() => s.rename("cabin", "cabin-2")).toThrow(/already exists/);
     expect(() => s.create("../x")).toThrow(/bad blueprint name/);
-  });
-
-  it("moves test results with a rename", () => {
-    const s = fresh();
-    s.create("a");
-    mkdirSync(join(s.dir, ".test", "a", "results"), { recursive: true });
-    writeFileSync(join(s.dir, ".test", "a", "results", "summary.json"), "{}");
-    expect(s.info("a").tested).toBe(true);
-    s.rename("a", "b");
-    expect(s.info("b").tested).toBe(true);
   });
 
   it("archives and restores without deleting", () => {

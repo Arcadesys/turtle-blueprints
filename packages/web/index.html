@@ -34,7 +34,6 @@
   #files li[aria-selected=true] { background: #8882; }
   #files .meta { color: var(--muted); font-size: 12px; }
   #files .t { display: flex; gap: 6px; align-items: baseline; }
-  #files .tag { margin-left: auto; font-size: 11px; color: var(--muted); }
   #form { display: none; margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
   #form.open { display: block; }
   #form input[type=text] { width: 100%; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; margin-top: 4px; }
@@ -160,10 +159,7 @@
   </div>
   <div class="note">Building Gadgets: open a Template Manager with a Copy-Paste Gadget (or paper) in it and press Paste.</div>
   <div class="note">Turtle: put the schema on the turtle and run <code>factory &lt;file&gt;</code>. Tick items off as you gather them; ticks are saved in this browser.</div>
-  <h2>Turtle test</h2>
-  <div id="report" class="note">No test run yet. Ask Claude to run test_run_build.</div>
-  <label class="chk"><input id="ghosts" type="checkbox" checked> Show missing / wrong blocks</label>
-  <div class="note">A turtle built by cc-factory is mirrored left to right and sits behind-left of its start (turtlesim/README.md). Blueprint coordinates are shown as designed.</div>
+  <div class="note">A turtle built by cc-factory is mirrored left to right and sits behind-left of its start. Blueprint coordinates are shown as designed.</div>
 </aside>
 <div id="crosshair" aria-hidden="true"></div>
 <div id="hotbar"></div>
@@ -181,7 +177,7 @@
     <h1>Generate</h1>
     <div id="genWhere" class="note"></div>
     <textarea id="genText" placeholder="e.g. a 2-block-wide spiral staircase up to the roof, in oak planks" aria-label="What to build"></textarea>
-    <div class="note">Claude edits the blueprint with the MCP tools, exports a cc-factory schema and runs the turtle test.</div>
+    <div class="note">Claude edits the blueprint with the MCP tools and exports the schema for turtles and Building Gadgets.</div>
     <menu><button value="cancel">Cancel</button><button value="go" id="genGo">Generate</button></menu>
   </form>
 </dialog>

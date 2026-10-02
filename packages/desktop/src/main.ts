@@ -1,6 +1,6 @@
 /**
  * Turtle Blueprints desktop app: hosts the viewer and its backend on a private localhost port
- * and opens it in a window. Settings (blueprints folder, Claude Code, cc-binaries) live in the
+ * and opens it in a window. Settings (blueprints folder, Claude Code) live in the
  * app's user data folder and are changed from the menus.
  */
 import { createServer, type Server } from "node:http";
@@ -68,7 +68,7 @@ function mcpServer(blueprints: string) {
   return {
     command: process.execPath,
     args: [unpacked("mcp.cjs")],
-    env: { ELECTRON_RUN_AS_NODE: "1", TB_BLUEPRINTS: blueprints, ...(settings.ccBinaries ? { CC_BINARIES: settings.ccBinaries } : {}) },
+    env: { ELECTRON_RUN_AS_NODE: "1", TB_BLUEPRINTS: blueprints },
   };
 }
 
@@ -150,19 +150,6 @@ async function chooseClaude() {
     message: `Currently using: ${claudePath()}`, properties: ["openFile", "showHiddenFiles"],
   });
   if (!r.canceled && r.filePaths[0]) update({ claude: r.filePaths[0] });
-}
-
-async function chooseCcBinaries() {
-  const r = await dialog.showOpenDialog(win!, {
-    title: "Choose cc-binaries checkout (with turtlesim/ and cc-factory/)", defaultPath: settings.ccBinaries ?? homedir(),
-    properties: ["openDirectory"],
-  });
-  if (r.canceled || !r.filePaths[0]) return;
-  const dir = r.filePaths[0];
-  if (!existsSync(join(dir, "cc-factory", "factory.lua"))) {
-    await dialog.showMessageBox(win!, { type: "warning", message: "That folder has no cc-factory/factory.lua.", detail: "Turtle tests need a cc-binaries checkout. The path is saved anyway." });
-  }
-  update({ ccBinaries: dir });
 }
 
 let building = false;
@@ -258,7 +245,6 @@ function buildMenu() {
         { label: "Build Block Catalog…", click: () => void buildCatalog() },
         { type: "separator" },
         { label: "Locate Claude Code…", click: () => void chooseClaude() },
-        { label: "Choose cc-binaries Folder…", click: () => void chooseCcBinaries() },
         { label: "Copy MCP Config for Claude Code", click: copyMcpConfig },
       ],
     },

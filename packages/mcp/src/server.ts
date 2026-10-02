@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { resolve } from "node:path";
-import { Store, applyTool, exportTool, gadgetsTool, getTool, listTool, manageTool, newTool, planTool, testTool, validateTool } from "./tools";
+import { Store, applyTool, exportTool, gadgetsTool, getTool, listTool, manageTool, newTool, planTool, validateTool } from "./tools";
 
 const store = new Store(resolve(process.env.TB_BLUEPRINTS ?? "blueprints"));
 const server = new McpServer({ name: "turtle-blueprints", version: "0.1.0" });
@@ -107,17 +107,6 @@ server.registerTool(
     inputSchema: { name, outPath: z.string().optional() },
   },
   (a) => guard(() => gadgetsTool(store, a))(),
-);
-
-server.registerTool(
-  "test_run_build",
-  {
-    description:
-      "Run the blueprint through a simulated turtle (turtlesim + cc-factory) and report built vs planned blocks, fuel used and failures. " +
-      "The whole build must fit in the turtle's 16 inventory slots (about 1000 blocks). Needs CraftOS-PC and a cc-binaries checkout (CC_BINARIES).",
-    inputSchema: { name, timeoutSec: z.number().positive().optional() },
-  },
-  (a) => guard(() => testTool(store, { ...a, ccBinaries: process.env.CC_BINARIES }))(),
 );
 
 void server.connect(new StdioServerTransport());

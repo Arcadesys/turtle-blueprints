@@ -53,7 +53,6 @@ export function toolLabel(tool: string, input: Input = {}): string {
     case "blueprint_build_plan": return "Working out materials";
     case "blueprint_new": return `Creating ${String(input.name ?? "a blueprint")}`;
     case "blueprint_manage": return `${String(input.action ?? "Managing")} ${String(input.name ?? "")}`.trim();
-    case "test_run_build": return "Running the turtle test";
     default: return name;
   }
 }

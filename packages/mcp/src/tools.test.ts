@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { Store, applyTool, exportTool, getTool, newTool, testTool, validateTool } from "./tools";
+import { Store, applyTool, exportTool, getTool, newTool, validateTool } from "./tools";
 
 const fresh = () => new Store(mkdtempSync(join(tmpdir(), "tb-")));
 
@@ -40,23 +40,6 @@ describe("mcp tools", () => {
     expect(validateTool(s, { name: "b" })).toContain("warning:");
     expect(JSON.parse(exportTool(s, { name: "b" }).split("\nwarning:")[0]!).statePosArrayList).toContain("minecraft:oak_door");
   });
-});
-
-const cc = process.env.CC_BINARIES ?? "/Users/arcades/Documents/GitHub/cc-binaries";
-describe.skipIf(!existsSync("/Applications/CraftOS-PC.app") || !existsSync(`${cc}/turtlesim/turtle`))("test_run_build", () => {
-  it("builds a small tower in the simulator", async () => {
-    const s = fresh();
-    newTool(s, { name: "tower" });
-    applyTool(s, {
-      name: "tower",
-      ops: [
-        { op: "fill", from: [0, 0, 0], to: [4, 3, 4], block: "minecraft:stone_bricks", mode: "hollow" },
-        { op: "set", at: [2, 2, 0], block: "minecraft:glass" },
-      ],
-    });
-    const out = await testTool(s, { name: "tower", ccBinaries: cc, timeoutSec: 120 });
-    expect(out).toMatch(/^PASS: built \d+ of \d+/);
-  }, 150_000);
 });
 
 describe("file management tools", () => {
