@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
-import { DEFAULT_LIGHT_ENV, type Catalog, type CatalogEntry, type Faces, type LightEnv, type Variant } from "@tb/blueprint/editor";
+import { CATALOG_VERSION, DEFAULT_LIGHT_ENV, type Catalog, type CatalogEntry, type Faces, type LightEnv, type Variant } from "@tb/blueprint/editor";
 import { classLoader, scanMod, scanVanilla, type ClassLoader, type CodeLight } from "./light";
 
 type Json = Record<string, any>;
@@ -237,7 +237,7 @@ export function buildCatalog(src: Sources, light?: Map<string, CodeLight>): { ca
       v,
     };
   }
-  return { catalog: { version: 1, textures, frames: {}, blocks }, used: textures };
+  return { catalog: { version: CATALOG_VERSION, textures, frames: {}, blocks }, used: textures };
 }
 
 /** Frame count for a vertical animation strip, from the PNG header. */
