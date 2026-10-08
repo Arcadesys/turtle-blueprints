@@ -10,6 +10,7 @@ import { computeLight, lightmap, skyColor, skyDarken } from "./lighting";
 import { DEFAULT_LIGHT_ENV, type LightEnv } from "@tb/blueprint/editor";
 import { initPalette, selectSlot } from "./palette";
 import { createBuilder } from "./build";
+import { version } from "../../../package.json";
 import { WHEEL, blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelAngle, wheelSlice, type Box, type Clip } from "./wand";
 
 // Shape of the /api/blueprint response.
@@ -17,6 +18,10 @@ interface Payload { blueprint: Blueprint; version: string }
 interface FileInfo { name: string; description?: string; blocks: number; size: [number, number, number] | null; modified: number }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// The version lives in the root package.json; every workspace package matches it (version.test.ts).
+$("version").textContent = `v${version}`;
+document.title = `Turtle Blueprints v${version}`;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));

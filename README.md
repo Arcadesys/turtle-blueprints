@@ -1,5 +1,7 @@
 # turtle-blueprints
 
+**Version 0.1.0** · [Changelog](CHANGELOG.md) · [Releases](https://github.com/Arcadesys/turtle-blueprints/releases)
+
 Design a build with Claude, see it in 3D, then build it with a ComputerCraft turtle or Building Gadgets 2.
 
 ```
@@ -39,6 +41,10 @@ npm run start -w @tb/desktop
 ```
 
 `npm run dist:mac -w @tb/desktop` or `npm run dist:win -w @tb/desktop` makes an installer in `packages/desktop/release/`; build each on its own OS. Pushing a `v*` tag (or running the **Desktop app** workflow by hand) builds both on GitHub Actions and attaches them to the release.
+
+### Versions
+
+The version is set in the root `package.json`, and every package under `packages/` carries the same one (a test checks). The viewer shows it next to its title, the desktop app in its window title and **About** box. To release: add a section to [CHANGELOG.md](CHANGELOG.md), bump every `package.json` with `npm version <x.y.z> --workspaces --include-workspace-root --no-git-tag-version`, merge, then tag `v<x.y.z>` and push the tag.
 
 ## Setup
 
