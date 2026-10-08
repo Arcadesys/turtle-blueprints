@@ -11,5 +11,6 @@ The first versioned release.
 - **Selector wand:** select a box and copy, paste, delete, generate with Claude, or save it as a new blueprint from the wheel.
 - **Build tool:** place and break blocks by hand, with search across the ATM10 blocks.
 - **Walk mode:** first person like Minecraft creative, with gravity, jumping, flight and collision. Shift sprints while walking, Ctrl sprints while flying, and the controls recover cleanly after the window loses focus.
+- **VR:** edit blueprints in WebXR (Quest Browser): walk, fly, select and use the wheel with the controllers.
 - **Export:** Building Gadgets 2 templates and cc-factory schemas as JSON.
 - **Desktop app:** Electron app for macOS and Windows with live Generate progress and a block catalog builder. It shows its version in the window title and About box.

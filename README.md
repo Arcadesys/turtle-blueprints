@@ -138,6 +138,10 @@ Press `F` to walk, first person like Minecraft creative: WASD and the mouse to l
 
 Paste and delete write the blueprint file directly. `Ctrl/Cmd+Z` undoes them, and undoes a whole Generate. Generate needs `claude` on the PATH (or set `TB_CLAUDE`).
 
+### VR (Meta Quest)
+
+An **Enter VR** button appears next to Walk when the browser supports immersive VR (Quest Browser does). WebXR needs HTTPS or localhost, so either plug the Quest in over USB and run `adb reverse tcp:5173 tcp:5173`, then open `http://localhost:5173` in Quest Browser, or serve the dev server over HTTPS (`npm run dev -w @tb/web -- --host` behind a TLS proxy or tunnel). You stand on the ground where the orbit camera was. Left stick walks, right stick flicks to turn 30°, left X (or stick click) toggles flight (right B rises or jumps, left Y sinks or sprints), right trigger selects (hold the grip to grow the box), and holding right A opens the wheel: aim with the right stick, release A or pull the trigger to choose. The Build tool is not available in VR.
+
 ## Limits to know about
 
 - Turtles place a block as the item of the same name. Blockstate (stairs, log axis) is carried but ignored, and doors, beds, redstone dust and fluids will not place.
