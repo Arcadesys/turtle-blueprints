@@ -25,7 +25,7 @@ export interface Pad {
   move: readonly [number, number]; // left stick
   rise: readonly [number, number]; // right stick
   jump: boolean; // right B: jump when walking, rise when flying
-  sneak: boolean; // left Y: sneak when walking, sink when flying
+  sprint: boolean; // left Y: sprint when walking, sink when flying
   flying: boolean;
   /** Horizontal look direction of the headset (x, z). */
   facing: [number, number];
@@ -40,7 +40,8 @@ export function walkInput(p: Pad): Input {
     forward: -y,
     right: x,
     up: p.jump || ry < -0.5,
-    down: p.sneak || ry > 0.5,
+    down: p.sprint || ry > 0.5,
+    sprint: false,
   };
 }
 

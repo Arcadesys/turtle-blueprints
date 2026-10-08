@@ -3,7 +3,7 @@ import { deadzone, rotateAbout, type Pad, SNAP_ANGLE, snapTurn, stickOf, walkInp
 import { wheelSlice } from "./wand";
 
 const close = (a: number, b: number) => expect(a).toBeCloseTo(b, 6);
-const pad: Pad = { move: [0, 0], rise: [0, 0], jump: false, sneak: false, flying: false, facing: [0, -1] };
+const pad: Pad = { move: [0, 0], rise: [0, 0], jump: false, sprint: false, flying: false, facing: [0, -1] };
 
 describe("sticks", () => {
   it("reads the thumbstick from axes 2 and 3, or 0 and 1 on a one-stick pad", () => {
@@ -33,9 +33,9 @@ describe("sticks", () => {
     expect(walkInput({ ...pad, facing: [1, 0] }).facing).toEqual([1, 0]);
   });
 
-  it("jumps and sneaks on buttons; the right stick only rises and sinks while flying", () => {
+  it("jumps and sprints on buttons; the right stick only rises and sinks while flying", () => {
     expect(walkInput({ ...pad, jump: true }).up).toBe(true);
-    expect(walkInput({ ...pad, sneak: true }).down).toBe(true);
+    expect(walkInput({ ...pad, sprint: true }).down).toBe(true);
     expect(walkInput({ ...pad, rise: [0, -1] }).up).toBe(false);
     expect(walkInput({ ...pad, rise: [0, -1], flying: true }).up).toBe(true);
     expect(walkInput({ ...pad, rise: [0, 1], flying: true }).down).toBe(true);

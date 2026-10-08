@@ -10,6 +10,7 @@ import { computeLight, lightmap, skyColor, skyDarken } from "./lighting";
 import { DEFAULT_LIGHT_ENV, type LightEnv } from "@tb/blueprint/editor";
 import { initPalette, selectSlot } from "./palette";
 import { createBuilder } from "./build";
+import { version } from "../../../package.json";
 import { askByKeyboard, canAskByKeyboard } from "./xr-voice";
 import { rotateAbout, SNAP_ANGLE, snapTurn, stickOf, walkInput, wrap, yawFacing } from "./xr";
 import { XRControllerModelFactory } from "three/examples/jsm/webxr/XRControllerModelFactory.js";
@@ -20,6 +21,10 @@ interface Payload { blueprint: Blueprint; version: string }
 interface FileInfo { name: string; description?: string; blocks: number; size: [number, number, number] | null; modified: number }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// The version lives in the root package.json; every workspace package matches it (version.test.ts).
+$("version").textContent = `v${version}`;
+document.title = `Turtle Blueprints v${version}`;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -385,8 +390,8 @@ void refreshList();
 
 // --- Walk mode -----------------------------------------------------------
 // First person, like Minecraft creative: WASD moves. Walking has gravity, Space jumps and
-// Shift sneaks; double-tap Space to fly, where Space/Shift rise and sink and touching the
-// ground lands you. Blocks are solid either way.
+// Shift sprints; double-tap Space to fly, where Space/Shift rise and sink, Ctrl sprints, and
+// touching the ground lands you. Blocks are solid either way.
 // Mouse captured (pointer lock): the mouse looks, the wand aims from the crosshair, and the
 // mouse steers the wheel while it is open. Cursor free (Esc or E, or the browser refused
 // capture): drag to look, and the wand aims at the cursor as in orbit view.
@@ -397,6 +402,9 @@ let flying = true; // walk mode starts in the air, where the orbit camera was
 let vy = 0;
 let onGround = false;
 let lastSpace = 0;
+// Losing focus (switching apps) drops the pointer lock without the player asking; the next click
+// on the view takes the mouse back instead of selecting.
+let relock = false;
 const held = new Set<string>();
 const clock = new THREE.Clock();
 const locked = () => look.isLocked;
@@ -406,6 +414,7 @@ const capture = () => { void Promise.resolve(renderer.domElement.requestPointerL
 function setWalk(on: boolean) {
   walking = on;
   held.clear();
+  relock = false;
   controls.enabled = !on;
   $("walk").setAttribute("aria-pressed", String(on));
   if (on) { flying = true; vy = 0; }
@@ -420,7 +429,11 @@ function setWalk(on: boolean) {
   }
 }
 look.addEventListener("lock", () => { document.body.classList.add("locked"); });
-look.addEventListener("unlock", () => { document.body.classList.remove("locked"); look.pointerSpeed = 1; });
+look.addEventListener("unlock", () => {
+  document.body.classList.remove("locked");
+  closeWheel(); // a wheel steered by the locked mouse can't be steered without it
+  if (walking && !document.hasFocus()) relock = true;
+});
 document.addEventListener("pointerlockerror", () => {
   if (walking) status("The browser would not capture the mouse. Keep walking: drag to look, click to select.");
 });
@@ -440,7 +453,7 @@ function setFly(on: boolean) {
   flying = on;
   vy = 0;
   walkLabel();
-  status(on ? "Flying: Space and Shift rise and sink. Double-tap Space to drop." : "Walking: Space jumps, Shift sneaks. Double-tap Space to fly.");
+  status(on ? "Flying: Space and Shift rise and sink, Ctrl sprints. Double-tap Space to drop." : "Walking: Space jumps, Shift sprints. Double-tap Space to fly.");
 }
 
 const solid = (x: number, y: number, z: number) => solidCells.has(`${x},${y},${z}`);
@@ -455,6 +468,7 @@ function walkStep(dt: number) {
     right: Number(held.has("d")) - Number(held.has("a")),
     up: held.has(" "),
     down: held.has("shift"),
+    sprint: held.has("control"),
   }, dt, solid, grid.position.y);
   p.set(out.feet[0], out.feet[1] + EYE, out.feet[2]);
   vy = out.vy;
@@ -849,8 +863,11 @@ initPalette();
 // A click (not an orbit drag) with the wand pings a block and opens the wheel.
 // Walking: left click selects from the crosshair (or confirms the steered wheel slice),
 // right click grows the box, like a WorldEdit wand.
-let down: { x: number; y: number; button: number } | null = null;
-renderer.domElement.addEventListener("pointerdown", (e) => { down = { x: e.clientX, y: e.clientY, button: e.button }; });
+let down: { x: number; y: number; button: number; id: number } | null = null;
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (relock && walking && !locked()) { relock = false; down = null; capture(); return; }
+  down = { x: e.clientX, y: e.clientY, button: e.button, id: e.pointerId };
+});
 renderer.domElement.addEventListener("contextmenu", (e) => { if (walking || buildOn) e.preventDefault(); });
 renderer.domElement.addEventListener("pointermove", (e) => {
   if (walking && !locked() && down?.button === 0) dragLook(e.movementX, e.movementY);
@@ -883,9 +900,22 @@ async function undoLast() {
   await load(prev.name, true);
 }
 
-const MOVE = new Set(["w", "a", "s", "d", " ", "shift"]);
+const MOVE = new Set(["w", "a", "s", "d", " ", "shift", "control"]);
 addEventListener("keyup", (e) => { held.delete(e.key.toLowerCase()); });
-addEventListener("blur", () => held.clear());
+// Keys and buttons released while the window is in the background never send keyup or
+// pointerup, so drop them all, or W stays held and the view keeps turning with the mouse.
+function letGo() {
+  held.clear();
+  lastSpace = 0;
+  if (walking && locked()) relock = true;
+  if (down) {
+    // End an orbit drag too; OrbitControls only listens on the canvas.
+    renderer.domElement.dispatchEvent(new PointerEvent("pointercancel", { pointerId: down.id }));
+    down = null;
+  }
+}
+addEventListener("blur", letGo);
+document.addEventListener("visibilitychange", () => { if (document.hidden) letGo(); });
 addEventListener("keydown", (e) => {
   if (e.target instanceof Element && e.target.closest("textarea, input, select, dialog")) return;
   if (walking && MOVE.has(e.key.toLowerCase())) {
@@ -906,7 +936,7 @@ addEventListener("keydown", (e) => {
   else if (k === "b") setBuild(!buildOn);
   else if (/^[1-9]$/.test(k)) selectSlot(Number(k) - 1);
   else if (k === "f") setWalk(!walking);
-  else if (k === "e" && walking) { closeWheel(); if (locked()) look.unlock(); else capture(); }
+  else if (k === "e" && walking) { closeWheel(); relock = false; if (locked()) look.unlock(); else capture(); }
   else if (wheel.classList.contains("open")) {
     const map: Record<string, string> = { c: "copy", v: "paste", x: "delete", delete: "delete", backspace: "delete", n: "new", g: "generate" };
     if (map[k]) { e.preventDefault(); void act(map[k]); }
@@ -916,7 +946,7 @@ addEventListener("keydown", (e) => {
 // The camera rides a rig; the headset supplies eye height, so the rig stands at the feet and
 // moving or turning means moving or turning the rig. Left stick walks (stepPlayer, with the
 // headset's heading), left X or stick click toggles flight, right B jumps/rises, left Y
-// sneaks/sinks, right stick flick turns 30 degrees. Right trigger selects (grip held grows the
+// sprints/sinks, right stick flick turns 30 degrees. Right trigger selects (grip held grows the
 // box); right A or stick click holds the wheel open: aim with the stick, release A or pull the
 // trigger to choose. The wheel and the wand status are drawn on canvas panels.
 
@@ -1111,13 +1141,13 @@ function xrStep(dt: number) {
 
   if (lX.down || lStick.down) {
     xrPlayer = { ...xrPlayer, flying: !xrPlayer.flying, vy: 0 };
-    status(xrPlayer.flying ? "Flying: right B rises, left Y sinks, or push the right stick." : "Walking: right B jumps, left Y sneaks.");
+    status(xrPlayer.flying ? "Flying: right B rises, left Y sinks, or push the right stick." : "Walking: right B jumps, left Y sprints.");
   }
 
   // Locomotion: the rig moves by however far the body did.
   const feet: [number, number, number] = [hp.x, rig.position.y, hp.z];
   const out = stepPlayer({ ...xrPlayer, feet }, walkInput({
-    move: [lx, ly], rise: open ? [0, 0] : [rx, ry], jump: rB.now, sneak: lY.now, flying: xrPlayer.flying, facing: hp.facing,
+    move: [lx, ly], rise: open ? [0, 0] : [rx, ry], jump: rB.now, sprint: lY.now, flying: xrPlayer.flying, facing: hp.facing,
   }), dt, solid, grid.position.y);
   rig.position.x += out.feet[0] - feet[0];
   rig.position.y = out.feet[1];
