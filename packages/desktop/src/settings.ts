@@ -14,6 +14,9 @@ export interface Settings {
   /** Last ATM10 instance and client jar the block catalog was built from. */
   instance?: string;
   clientJar?: string;
+  /** macOS update prompt: when we last asked GitHub (ms), and a version the user chose to skip. */
+  lastUpdateCheck?: number;
+  skipVersion?: string;
 }
 
 export function loadSettings(file: string): Settings {

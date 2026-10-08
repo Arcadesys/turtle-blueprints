@@ -38,7 +38,9 @@ npm install
 npm run start -w @tb/desktop
 ```
 
-`npm run dist:mac -w @tb/desktop` or `npm run dist:win -w @tb/desktop` makes an installer in `packages/desktop/release/`; build each on its own OS. Pushing a `v*` tag (or running the **Desktop app** workflow by hand) builds both on GitHub Actions and attaches them to the release.
+`npm run dist:mac -w @tb/desktop` or `npm run dist:win -w @tb/desktop` makes an installer in `packages/desktop/release/`; build each on its own OS. Every merge to `main` runs the **Desktop app** workflow, which builds both and publishes a release `v0.1.<run number>`; pushing a `v*` tag releases under that version instead.
+
+Updates: the installed Windows app downloads new releases in the background and offers to restart. The Mac builds are unsigned, so the app can't replace itself: it checks GitHub for a newer release at most once a day, and **Download** fetches the new `.dmg` into Downloads and opens it, then you drag the app into Applications over the old one. **Help › Check for Updates…** checks right away on both.
 
 ## Setup
 

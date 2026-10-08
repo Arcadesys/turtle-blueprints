@@ -4,14 +4,18 @@
  * app's user data folder and are changed from the menus.
  */
 import { createServer, type Server } from "node:http";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join, normalize, sep } from "node:path";
 import { Worker } from "node:worker_threads";
+import { autoUpdater } from "electron-updater";
 import { app, BrowserWindow, clipboard, dialog, Menu, shell, type MenuItemConstructorOptions } from "electron";
 import { defaultPaths } from "@tb/assets";
 import { CATALOG_VERSION } from "@tb/blueprint/editor";
 import { createApi } from "../../web/server/routes";
+import { compareVersions, parseRelease, type ReleaseAsset } from "./update";
 import { findClaude, loadSettings, loginShellPath, saveSettings, type Settings } from "./settings";
 
 const dist = __dirname;
@@ -225,6 +229,103 @@ function copyMcpConfig() {
   });
 }
 
+const RELEASES = "https://api.github.com/repos/Arcadesys/turtle-blueprints/releases/latest";
+const DAY = 24 * 60 * 60 * 1000;
+
+const info = (message: string, detail?: string) => (win ? dialog.showMessageBox(win, { message, detail }) : dialog.showMessageBox({ message, detail }));
+
+/** Windows: electron-updater downloads in the background and installs on quit, or now if the user says so. */
+let winUpdateManual = false;
+function setupWindowsUpdater() {
+  autoUpdater.on("update-downloaded", async (e) => {
+    const r = await dialog.showMessageBox({
+      type: "info", message: `Version ${e.version} is ready`,
+      detail: "Restart Turtle Blueprints to finish updating, or it will update the next time you quit.",
+      buttons: ["Restart now", "Later"], defaultId: 0, cancelId: 1,
+    });
+    if (r.response === 0) autoUpdater.quitAndInstall();
+  });
+  autoUpdater.on("update-not-available", () => {
+    if (winUpdateManual) void info("You're up to date", `Version ${app.getVersion()}`);
+    winUpdateManual = false;
+  });
+  autoUpdater.on("error", (e) => {
+    if (winUpdateManual) void dialog.showMessageBox({ type: "error", message: "Could not check for updates", detail: String(e?.message ?? e) });
+    winUpdateManual = false;
+  });
+}
+
+/** Stream a release's dmg into Downloads, show progress on the dock/taskbar icon, then open it. */
+async function downloadDmg(dmg: ReleaseAsset, version: string) {
+  const file = join(app.getPath("downloads"), dmg.name);
+  try {
+    const res = await fetch(dmg.browser_download_url);
+    if (!res.ok || !res.body) throw new Error(`GitHub answered ${res.status}`);
+    const total = Number(res.headers.get("content-length")) || dmg.size || 0;
+    let got = 0;
+    const body = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
+    body.on("data", (c: Buffer) => { got += c.length; win?.setProgressBar(total ? got / total : 2); });
+    await pipeline(body, createWriteStream(file));
+  } catch (e) {
+    win?.setProgressBar(-1);
+    void dialog.showMessageBox({ type: "error", message: "Could not download the update", detail: String((e as Error).message ?? e) });
+    return;
+  }
+  win?.setProgressBar(-1);
+  await shell.openPath(file);
+  const r = await dialog.showMessageBox({
+    type: "info", message: `Turtle Blueprints ${version} downloaded`,
+    detail: "Drag Turtle Blueprints from the disk image into Applications, replacing the old copy. Quit this app first so the copy can go through.",
+    buttons: ["Quit Now", "Later"], defaultId: 0, cancelId: 1,
+  });
+  if (r.response === 0) app.quit();
+}
+
+/** macOS (unsigned, so no auto-install): ask GitHub for the latest release and offer its dmg. Launch checks stay silent unless there is news. */
+async function checkMacUpdate(manual: boolean) {
+  update({ lastUpdateCheck: Date.now() });
+  let latest: ReturnType<typeof parseRelease>;
+  try {
+    const res = await fetch(RELEASES, { headers: { accept: "application/vnd.github+json", "user-agent": "turtle-blueprints" } });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    latest = parseRelease(await res.json(), process.arch);
+    if (!latest) throw new Error("No release found");
+  } catch (e) {
+    if (manual) void dialog.showMessageBox({ type: "error", message: "Could not check for updates", detail: String((e as Error).message ?? e) });
+    return;
+  }
+  const current = app.getVersion();
+  if (compareVersions(latest.version, current) <= 0) {
+    if (manual) void info("You're up to date", `Version ${current}`);
+    return;
+  }
+  if (!manual && settings.skipVersion === latest.version) return;
+  if (!latest.dmg) {
+    if (manual) void info(`Turtle Blueprints ${latest.version} is available`, "It has no download for this Mac yet; try again in a few minutes.");
+    return;
+  }
+  const r = await dialog.showMessageBox({
+    type: "info", message: `Turtle Blueprints ${latest.version} is available (you have ${current})`,
+    buttons: ["Download", "Skip This Version", "Later"], defaultId: 0, cancelId: 2,
+  });
+  if (r.response === 0) await downloadDmg(latest.dmg, latest.version);
+  else if (r.response === 1) update({ skipVersion: latest.version });
+}
+
+/** Menu and launch entry point. Launch checks run for packaged builds only, and on macOS at most once a day. */
+function checkForUpdates(manual: boolean) {
+  if (!app.isPackaged) {
+    if (manual) void info("Updates only work in the installed app", `This is a development build (version ${app.getVersion()}).`);
+    return;
+  }
+  if (process.platform === "win32") {
+    winUpdateManual = manual;
+    autoUpdater.checkForUpdates().catch(() => {});
+  } else if (process.platform === "darwin") {
+    if (manual || Date.now() - (settings.lastUpdateCheck ?? 0) >= DAY) void checkMacUpdate(manual);
+  }
+}
+
 function buildMenu() {
   const mac = process.platform === "darwin";
   const template: MenuItemConstructorOptions[] = [
@@ -252,7 +353,10 @@ function buildMenu() {
     { role: "windowMenu" },
     {
       role: "help",
-      submenu: [{ label: "Project on GitHub", click: () => void shell.openExternal("https://github.com/Arcadesys/turtle-blueprints") }],
+      submenu: [
+        { label: "Check for Updates…", click: () => checkForUpdates(true) },
+        { label: "Project on GitHub", click: () => void shell.openExternal("https://github.com/Arcadesys/turtle-blueprints") },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -281,6 +385,8 @@ if (!app.requestSingleInstanceLock()) {
         if (r.response === 0) void buildCatalog();
       });
     }
+    if (process.platform === "win32") setupWindowsUpdater();
+    setTimeout(() => checkForUpdates(false), 5000);
     app.on("activate", () => { if (!win) createWindow(); });
   });
   app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
