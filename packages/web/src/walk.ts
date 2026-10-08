@@ -72,14 +72,16 @@ export interface Input {
   forward: number; // +1 W, -1 S
   right: number; // +1 D, -1 A
   up: boolean; // Space: rise when flying, jump when walking
-  down: boolean; // Shift: sink when flying, sneak when walking
+  down: boolean; // Shift: sink when flying, sprint when walking
+  sprint: boolean; // Ctrl: sprint when flying
 }
 
 // Minecraft numbers, in blocks and seconds.
 export const FLY_SPEED = 10.9;
+export const FLY_SPRINT_SPEED = FLY_SPEED * 2;
 export const FLY_VERTICAL = 8;
 export const WALK_SPEED = 4.3;
-export const SNEAK_SPEED = 1.3;
+export const SPRINT_SPEED = WALK_SPEED * 2;
 export const GRAVITY = 32;
 export const JUMP_SPEED = 9; // about a 1.25 block jump
 const TERMINAL = 78;
@@ -94,7 +96,7 @@ export function stepPlayer(pl: Player, inp: Input, dt: number, solid: Solid, flo
   let mz = fz * inp.forward + fx * inp.right;
   const m = Math.hypot(mx, mz);
   if (m > 1) { mx /= m; mz /= m; }
-  const speed = pl.flying ? FLY_SPEED : inp.down ? SNEAK_SPEED : WALK_SPEED;
+  const speed = pl.flying ? (inp.sprint ? FLY_SPRINT_SPEED : FLY_SPEED) : inp.down ? SPRINT_SPEED : WALK_SPEED;
   let vy = pl.vy;
   let dy: number;
   if (pl.flying) {
