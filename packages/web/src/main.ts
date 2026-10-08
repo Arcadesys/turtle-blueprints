@@ -4,12 +4,15 @@ import { PointerLockControls } from "three/examples/jsm/controls/PointerLockCont
 import { baseId, buildPlan, TURTLE_SLOTS, type Blueprint, type Op, type Vec3 } from "@tb/blueprint";
 import { toGadgetsJson } from "@tb/blueprint/gadgets";
 import type { GenerateJob } from "./checkpoints";
-import { EYE, HALF_WIDTH, HEIGHT, stepPlayer } from "./walk";
+import { EYE, HALF_WIDTH, HEIGHT, stepPlayer, type Player } from "./walk";
 import { dropFallbackMaterials, ensureBlocks, geometryFor, lightOf, materialsFor, rotationFor, setLightmap, setLightVolume, setSmoothLighting, variantOf, type Shape } from "./textures";
 import { computeLight, lightmap, skyColor, skyDarken } from "./lighting";
 import { DEFAULT_LIGHT_ENV, type LightEnv } from "@tb/blueprint/editor";
 import { initPalette, selectSlot } from "./palette";
 import { createBuilder } from "./build";
+import { askByKeyboard, canAskByKeyboard } from "./xr-voice";
+import { rotateAbout, SNAP_ANGLE, snapTurn, stickOf, walkInput, wrap, yawFacing } from "./xr";
+import { XRControllerModelFactory } from "three/examples/jsm/webxr/XRControllerModelFactory.js";
 import { WHEEL, blocksIn, boxOf, boxSize, copy, deleteOps, pasteOps, wheelAngle, wheelSlice, type Box, type Clip } from "./wand";
 
 // Shape of the /api/blueprint response.
@@ -20,6 +23,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.xr.enabled = true;
 $("view").appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
@@ -32,6 +36,7 @@ grid.position.y = -0.5;
 scene.add(grid);
 
 function resize() {
+  if (renderer.xr.isPresenting) return; // the headset owns the size
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -508,7 +513,11 @@ function pickAt(e: PointerEvent, extend: boolean) {
   ray.setFromCamera(locked()
     ? new THREE.Vector2(0, 0)
     : new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
-  const hit = ray.intersectObjects(group.children.filter((o) => o.userData.cells), false)[0];
+  return pickRay(ray, extend);
+}
+/** Select whatever `rc` points at: a block (its face gives the paste target) or the ground. Mouse and VR controller share this. */
+function pickRay(rc: THREE.Raycaster, extend: boolean) {
+  const hit = rc.intersectObjects(group.children.filter((o) => o.userData.cells), false)[0];
   if (hit && hit.instanceId !== undefined && hit.face) {
     const cell = (hit.object.userData.cells as Vec3[])[hit.instanceId]!;
     const n = hit.face.normal;
@@ -518,7 +527,7 @@ function pickAt(e: PointerEvent, extend: boolean) {
     return true;
   }
   ground.constant = -(grid.position.y);
-  const p = ray.ray.intersectPlane(ground, new THREE.Vector3());
+  const p = rc.ray.intersectPlane(ground, new THREE.Vector3());
   if (!p) return false;
   const cell: Vec3 = [Math.round(p.x), Math.round(grid.position.y + 0.5), Math.round(p.z)];
   anchor = null;
@@ -575,6 +584,13 @@ async function edit(ops: Op[], done: string) {
   await load(name, true);
 }
 
+/** Asks for a Generate request in VR through Quest's system keyboard (type, or dictate with its mic). */
+function xrAskRequest(where: string): Promise<string | null> | null {
+  if (!canAskByKeyboard(renderer.xr.getSession())) return null;
+  status(`${where} Say or type what to build, then press Done.`);
+  return askByKeyboard({ prompt: "What to build", onText: (t) => status(`Request: ${t}`) });
+}
+
 async function act(what: string) {
   const btn = wheel.querySelector<HTMLButtonElement>(`[data-act=${what}]`);
   if (!wheel.classList.contains("open") || !btn || btn.disabled) return;
@@ -593,9 +609,18 @@ async function act(what: string) {
     select(null, null);
   } else if (what === "generate") {
     if (locked()) look.unlock(); // typing the request needs a cursor; E captures the mouse again
-    $("genWhere").textContent = sel
+    const where = sel
       ? `In ${bp.name}, the box ${sel.min.join(",")} to ${sel.max.join(",")} (${boxSize(sel).join("×")}).`
       : target ? `In ${bp.name}, starting at the empty cell ${target.join(", ")}.` : `In ${bp.name}.`;
+    if (renderer.xr.isPresenting) { // a dialog cannot be shown in the headset
+      const asked = xrAskRequest(where);
+      if (!asked) return status("Voice requests need Quest Browser's system keyboard (Quest Browser 26.1 or later).");
+      const text = await asked;
+      if (text) void generate(text);
+      else status("No request; nothing generated.");
+      return;
+    }
+    $("genWhere").textContent = where;
     $<HTMLDialogElement>("gen").showModal();
     $<HTMLTextAreaElement>("genText").focus();
   }
@@ -887,15 +912,253 @@ addEventListener("keydown", (e) => {
     if (map[k]) { e.preventDefault(); void act(map[k]); }
   }
 });
+// --- VR (WebXR, Quest) ---------------------------------------------------
+// The camera rides a rig; the headset supplies eye height, so the rig stands at the feet and
+// moving or turning means moving or turning the rig. Left stick walks (stepPlayer, with the
+// headset's heading), left X or stick click toggles flight, right B jumps/rises, left Y
+// sneaks/sinks, right stick flick turns 30 degrees. Right trigger selects (grip held grows the
+// box); right A or stick click holds the wheel open: aim with the stick, release A or pull the
+// trigger to choose. The wheel and the wand status are drawn on canvas panels.
 
+const rig = new THREE.Group();
+scene.add(rig);
+const hands: Record<string, XRInputSource | undefined> = {};
+const xrBtn = $<HTMLButtonElement>("vr");
+let xrSession: XRSession | null = null;
+let xrPlayer: Player = { feet: [0, 0, 0], vy: 0, flying: false, onGround: false };
+let xrSaved: { pos: THREE.Vector3; quat: THREE.Quaternion; target: THREE.Vector3 } | null = null;
+let snapArmed = true;
+const btnPrev: Record<string, boolean[]> = {};
+
+// Controllers, models and a ray line on each.
+const modelFactory = new XRControllerModelFactory();
+const rayLine = (color: number) => {
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -5)]);
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ color }));
+};
+const ctrls = [0, 1].map((i) => {
+  const c = renderer.xr.getController(i);
+  c.add(rayLine(0xffffff));
+  const g = renderer.xr.getControllerGrip(i);
+  g.add(modelFactory.createControllerModel(g));
+  rig.add(c, g);
+  return c;
+});
+
+/** A flat canvas-textured panel that draws on top of the blocks. */
+function panel(w: number, h: number, px: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = px;
+  canvas.height = Math.round((px * h) / w);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  mesh.renderOrder = 10;
+  return { mesh, ctx: canvas.getContext("2d")!, w: canvas.width, h: canvas.height, tex, sig: "" };
+}
+
+// Status panel on the left controller: the wand status line, or a hint.
+const statusPanel = panel(0.22, 0.11, 512);
+statusPanel.mesh.position.set(0, 0.07, 0.02);
+statusPanel.mesh.rotation.x = -Math.PI / 3;
+function drawStatus() {
+  const text = $("wandStatus").textContent?.trim() || "Trigger: select · A: wheel · stick: walk";
+  if (text === statusPanel.sig) return;
+  statusPanel.sig = text;
+  const { ctx, w, h } = statusPanel;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "rgba(20,24,32,.85)";
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = "#fff";
+  ctx.font = "30px monospace";
+  ctx.textBaseline = "top";
+  wrap(text, 30).slice(0, 5).forEach((l, i) => ctx.fillText(l, 14, 12 + i * 40));
+  statusPanel.tex.needsUpdate = true;
+}
+
+// The wheel, floating in front of where the headset was when it opened. State comes from the DOM wheel.
+const wheelPanel = panel(0.5, 0.5, 512);
+wheelPanel.mesh.visible = false;
+scene.add(wheelPanel.mesh);
+function drawWheel() {
+  const info = $("wheelInfo").textContent ?? "";
+  const btns = WHEEL.map((a) => wheel.querySelector<HTMLButtonElement>(`[data-act=${a}]`)!);
+  const sig = info + btns.map((b) => `${b.disabled}${b.classList.contains("hot")}`).join();
+  if (sig === wheelPanel.sig) return;
+  wheelPanel.sig = sig;
+  const { ctx, w, h } = wheelPanel;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "rgba(20,24,32,.8)";
+  ctx.beginPath();
+  ctx.arc(w / 2, h / 2, w / 2 - 4, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 34px sans-serif";
+  btns.forEach((b, i) => {
+    const x = w / 2 + 0.34 * w * Math.sin(wheelAngle(i)), y = h / 2 - 0.34 * h * Math.cos(wheelAngle(i));
+    const hotNow = b.classList.contains("hot");
+    ctx.fillStyle = hotNow ? "#3a6fd8" : b.disabled ? "#2b3038" : "#464d58";
+    ctx.beginPath();
+    ctx.roundRect(x - 78, y - 28, 156, 56, 20);
+    ctx.fill();
+    ctx.fillStyle = b.disabled ? "#7a808a" : "#fff";
+    ctx.fillText(b.dataset.act![0]!.toUpperCase() + b.dataset.act!.slice(1), x, y);
+  });
+  ctx.fillStyle = "#c8ccd2";
+  ctx.font = "26px sans-serif";
+  ctx.fillText(info, w / 2, h / 2);
+  wheelPanel.tex.needsUpdate = true;
+}
+
+const head = new THREE.Vector3();
+const look3 = new THREE.Vector3();
+/** Headset position and horizontal heading in the world, from the camera's pose in the rig. */
+function headPose() {
+  rig.updateMatrixWorld(true);
+  rig.localToWorld(head.copy(camera.position));
+  look3.set(0, 0, -1).applyQuaternion(camera.quaternion).applyQuaternion(rig.quaternion);
+  return { x: head.x, z: head.z, facing: (look3.x || look3.z ? [look3.x, look3.z] : [0, -1]) as [number, number] };
+}
+
+const rayAt = new THREE.Matrix4();
+function pickFromController(c: THREE.Object3D, extend: boolean) {
+  c.updateWorldMatrix(true, false);
+  rayAt.copy(c.matrixWorld);
+  ray.ray.origin.setFromMatrixPosition(rayAt);
+  ray.ray.direction.set(0, 0, -1).transformDirection(rayAt);
+  ray.far = Infinity;
+  return pickRay(ray, extend);
+}
+
+ctrls.forEach((c) => {
+  c.addEventListener("connected", (e) => {
+    const src = (e as unknown as { data: XRInputSource }).data;
+    hands[src.handedness] = src;
+    if (src.handedness === "left") c.add(statusPanel.mesh);
+  });
+  c.addEventListener("disconnected", (e) => {
+    delete hands[(e as unknown as { data: XRInputSource }).data.handedness];
+    if (statusPanel.mesh.parent === c) c.remove(statusPanel.mesh);
+  });
+  c.addEventListener("selectstart", (e) => {
+    const src = (e as unknown as { data: XRInputSource }).data;
+    if (src.handedness !== "right") return;
+    if (wheel.classList.contains("open")) { const a = hotAct(); if (a) void act(a); return; }
+    if (buildOn) return status("Build isn't available in VR. Press Q on the keyboard to switch to the wand.");
+    if (!wandOn) return status("The wand is off. Turn it on (Q) to select in VR.");
+    const extend = !!src.gamepad?.buttons[1]?.pressed; // grip held grows the box
+    if (!pickFromController(c, extend)) select(null, null);
+  });
+});
+
+xrBtn.addEventListener("click", () => {
+  if (xrSession) return void xrSession.end();
+  void navigator.xr!.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "bounded-floor"] }).then(
+    (session) => { void renderer.xr.setSession(session); },
+    (err: unknown) => status(`Could not start VR: ${err instanceof Error ? err.message : String(err)}`),
+  );
+});
+void navigator.xr?.isSessionSupported("immersive-vr").then((ok) => { xrBtn.hidden = !ok; }, () => { /* stay hidden */ });
+
+renderer.xr.addEventListener("sessionstart", () => {
+  xrSession = renderer.xr.getSession();
+  xrBtn.textContent = "Exit VR";
+  xrSaved = { pos: camera.position.clone(), quat: camera.quaternion.clone(), target: controls.target.clone() };
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  if (walking) setWalk(false);
+  controls.enabled = false;
+  closeWheel();
+  // Stand on the ground under the orbit camera, facing the way it faced.
+  rig.position.set(xrSaved.pos.x, grid.position.y, xrSaved.pos.z);
+  rig.rotation.set(0, yawFacing(dir.x, dir.z), 0);
+  rig.add(camera);
+  xrPlayer = { feet: [rig.position.x, rig.position.y, rig.position.z], vy: 0, flying: false, onGround: false };
+  snapArmed = true;
+  status("VR: left stick walks, right stick turns, trigger selects, A opens the wheel, left X flies.");
+});
+renderer.xr.addEventListener("sessionend", () => {
+  xrSession = null;
+  xrBtn.textContent = "Enter VR";
+  closeWheel();
+  rig.remove(camera);
+  if (xrSaved) {
+    camera.position.copy(xrSaved.pos);
+    camera.quaternion.copy(xrSaved.quat);
+    controls.target.copy(xrSaved.target);
+  }
+  camera.scale.set(1, 1, 1);
+  controls.enabled = !walking;
+  resize();
+});
+
+/** True on the frame button `i` of the `hand` pad goes down; held() is its state now. */
+function pressed(hand: string, i: number) {
+  const now = !!hands[hand]?.gamepad?.buttons[i]?.pressed;
+  const prev = (btnPrev[hand] ??= [])[i] ?? false;
+  btnPrev[hand]![i] = now;
+  return { now, down: now && !prev, up: !now && prev };
+}
+
+function xrStep(dt: number) {
+  const left = hands.left?.gamepad, right = hands.right?.gamepad;
+  const hp = headPose();
+  const [lx, ly] = left ? stickOf(left.axes) : [0, 0];
+  const [rx, ry] = right ? stickOf(right.axes) : [0, 0];
+  const lStick = pressed("left", 3), lX = pressed("left", 4), lY = pressed("left", 5);
+  const rStick = pressed("right", 3), rA = pressed("right", 4), rB = pressed("right", 5);
+  const open = wheel.classList.contains("open");
+
+  if (lX.down || lStick.down) {
+    xrPlayer = { ...xrPlayer, flying: !xrPlayer.flying, vy: 0 };
+    status(xrPlayer.flying ? "Flying: right B rises, left Y sinks, or push the right stick." : "Walking: right B jumps, left Y sneaks.");
+  }
+
+  // Locomotion: the rig moves by however far the body did.
+  const feet: [number, number, number] = [hp.x, rig.position.y, hp.z];
+  const out = stepPlayer({ ...xrPlayer, feet }, walkInput({
+    move: [lx, ly], rise: open ? [0, 0] : [rx, ry], jump: rB.now, sneak: lY.now, flying: xrPlayer.flying, facing: hp.facing,
+  }), dt, solid, grid.position.y);
+  rig.position.x += out.feet[0] - feet[0];
+  rig.position.y = out.feet[1];
+  rig.position.z += out.feet[2] - feet[2];
+  xrPlayer = out;
+
+  // Wheel: A or the stick click holds it open; the stick aims; release or trigger chooses.
+  if (!open && (rA.down || rStick.down) && wandOn) {
+    openWheel(innerWidth / 2, innerHeight / 2);
+    const w = headPose();
+    camera.getWorldDirection(look3);
+    wheelPanel.mesh.position.set(w.x, head.y, w.z).addScaledVector(look3, 0.6);
+    wheelPanel.mesh.lookAt(head);
+    wheelPanel.sig = "";
+  } else if (open) {
+    const what = wheelSlice(rx * 60, ry * 60);
+    hot(what && !wheel.querySelector<HTMLButtonElement>(`[data-act=${what}]`)?.disabled ? what : null);
+    if (rA.up || rStick.up) { const a = hotAct(); if (a) void act(a); else closeWheel(); }
+  }
+
+  // Snap turn about the headset, but not while the wheel uses the stick.
+  const snap = snapTurn(snapArmed, open ? 0 : rx);
+  snapArmed = snap.armed;
+  if (snap.turn) {
+    const r = rotateAbout({ x: rig.position.x, z: rig.position.z, yaw: rig.rotation.y }, hp.x, hp.z, -snap.turn * SNAP_ANGLE);
+    rig.position.x = r.x; rig.position.z = r.z; rig.rotation.y = r.yaw;
+  }
+
+  wheelPanel.mesh.visible = wheel.classList.contains("open");
+  if (wheelPanel.mesh.visible) drawWheel();
+  drawStatus();
+}
 renderer.setAnimationLoop(() => {
-  walkStep(Math.min(clock.getDelta(), 0.1));
+  const dt = Math.min(clock.getDelta(), 0.1);
+  if (renderer.xr.isPresenting) xrStep(dt); else walkStep(dt);
   if (ping) {
     const t = (performance.now() - ping.t0) / 450;
     if (t >= 1) { wandLayer.remove(ping.line); ping = null; }
     else { ping.line.scale.setScalar(1 + t * 0.8); (ping.line.material as THREE.LineBasicMaterial).opacity = 1 - t; }
   }
-  builder.hover(buildOn ? aimNdc() : null);
-  if (!walking) controls.update();
+  builder.hover(buildOn && !renderer.xr.isPresenting ? aimNdc() : null);
+  if (!walking && !renderer.xr.isPresenting) controls.update();
   renderer.render(scene, camera);
 });
