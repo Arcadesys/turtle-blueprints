@@ -1,15 +1,30 @@
 name: Desktop app
 
+# Every push to main builds the installers and cuts a release v0.1.<run number>.
+# A pushed v* tag releases under that tag's version instead. Manual runs on other
+# branches only build (the installers are kept as workflow artifacts).
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
   contents: write
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.1.$GITHUB_RUN_NUMBER"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -27,23 +42,41 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Set version
+        working-directory: packages/desktop
+        run: npm pkg set version=${{ needs.version.outputs.version }}
       - name: Build installer
         working-directory: packages/desktop
-        # Unsigned builds: no signing identity on the runner.
+        # Unsigned builds: no signing identity on the runner. Publishing is the release job's.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: node build.mjs && npx electron-builder ${{ matrix.target }} --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: turtle-blueprints-${{ matrix.os }}
+          # The .exe, its .blockmap and latest.yml are what electron-updater reads on Windows.
           path: |
             packages/desktop/release/*.dmg
             packages/desktop/release/*.exe
+            packages/desktop/release/*.exe.blockmap
+            packages/desktop/release/latest*.yml
           if-no-files-found: error
-      - name: Attach to release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+
+  release:
+    needs: [version, build]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          files: |
-            packages/desktop/release/*.dmg
-            packages/desktop/release/*.exe
+          pattern: turtle-blueprints-*
+          merge-multiple: true
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: Turtle Blueprints ${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          make_latest: "true"
+          files: release/*
