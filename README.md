@@ -1,5 +1,7 @@
 # turtle-blueprints
 
+**Version 0.1.0** · [Changelog](CHANGELOG.md) · [Releases](https://github.com/Arcadesys/turtle-blueprints/releases)
+
 Design a build with Claude, see it in 3D, then build it with a ComputerCraft turtle or Building Gadgets 2.
 
 ```
@@ -41,6 +43,10 @@ npm run start -w @tb/desktop
 `npm run dist:mac -w @tb/desktop` or `npm run dist:win -w @tb/desktop` makes an installer in `packages/desktop/release/`; build each on its own OS. Every merge to `main` runs the **Desktop app** workflow, which builds both and publishes a release `v0.1.<run number>`; pushing a `v*` tag releases under that version instead.
 
 Updates: the installed Windows app downloads new releases in the background and offers to restart. The Mac builds are unsigned, so the app can't replace itself: it checks GitHub for a newer release at most once a day, and **Download** fetches the new `.dmg` into Downloads and opens it, then you drag the app into Applications over the old one. **Help › Check for Updates…** checks right away on both.
+
+### Versions
+
+The version is set in the root `package.json`, and every package under `packages/` carries the same one (a test checks). The viewer shows it next to its title, the desktop app in its window title and **About** box. To release: add a section to [CHANGELOG.md](CHANGELOG.md), bump every `package.json` with `npm version <x.y.z> --workspaces --include-workspace-root --no-git-tag-version`, merge, then tag `v<x.y.z>` and push the tag.
 
 ## Setup
 
@@ -124,7 +130,7 @@ The viewer has a selector wand (toggle with `Q`). Click a block to ping and sele
 | New | `N` | saves the selected blocks as a new blueprint (moved so the box starts at 0,0,0), or starts an empty one when nothing is selected, then switches to it |
 | Generate | `G` | asks for a request in plain words, then runs headless Claude Code with only this MCP server: it edits the blueprint around the selection, validates it, and exports the schema (a Building Gadgets 2 template) to `blueprints/exports/`. A card in the top right follows it live: each step Claude takes (reading, placing blocks, validating, exporting) with its result, what Claude says along the way, and the elapsed time. **Stop** ends it early. |
 
-Press `F` to walk, first person like Minecraft creative: WASD and the mouse to look. You start flying (Space/Shift rise and sink); double-tap Space to drop and walk with gravity (Space jumps, Shift sneaks), and double-tap again to fly. Landing on the ground ends a flight. Blocks you can see are solid; if you start inside one you can move out freely. The wand aims from the crosshair while walking: left click selects, right click grows the box, and with the wheel open you flick the mouse toward an action and click (the keys still work). With the cursor free (Esc or `E`, or if the browser refuses to capture the mouse) you keep walking, drag to look, and the wand aims at the cursor; `E` captures the mouse again. Generate frees the cursor so you can type.
+Press `F` to walk, first person like Minecraft creative: WASD and the mouse to look. You start flying (Space/Shift rise and sink, Ctrl sprints at double speed); double-tap Space to drop and walk with gravity (Space jumps, Shift sprints at double speed), and double-tap again to fly. Landing on the ground ends a flight. Blocks you can see are solid; if you start inside one you can move out freely. The wand aims from the crosshair while walking: left click selects, right click grows the box, and with the wheel open you flick the mouse toward an action and click (the keys still work). With the cursor free (Esc or `E`, or if the browser refuses to capture the mouse) you keep walking, drag to look, and the wand aims at the cursor; `E` captures the mouse again. Generate frees the cursor so you can type.
 
 | | |
 | --- | --- |
@@ -133,6 +139,10 @@ Press `F` to walk, first person like Minecraft creative: WASD and the mouse to l
 ![First-person walk mode: crosshair selection with the action wheel](docs/screenshots/04-walking.jpg)
 
 Paste and delete write the blueprint file directly. `Ctrl/Cmd+Z` undoes them, and undoes a whole Generate. Generate needs `claude` on the PATH (or set `TB_CLAUDE`).
+
+### VR (Meta Quest)
+
+An **Enter VR** button appears next to Walk when the browser supports immersive VR (Quest Browser does). WebXR needs HTTPS or localhost, so either plug the Quest in over USB and run `adb reverse tcp:5173 tcp:5173`, then open `http://localhost:5173` in Quest Browser, or serve the dev server over HTTPS (`npm run dev -w @tb/web -- --host` behind a TLS proxy or tunnel). You stand on the ground where the orbit camera was. Left stick walks, right stick flicks to turn 30°, left X (or stick click) toggles flight (right B rises or jumps, left Y sinks or sprints), right trigger selects (hold the grip to grow the box), and holding right A opens the wheel: aim with the right stick, release A or pull the trigger to choose. The Build tool is not available in VR.
 
 ## Limits to know about
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  FLY_SPEED, FLY_VERTICAL, HALF_WIDTH, HEIGHT, SNEAK_SPEED, WALK_SPEED,
+  FLY_SPEED, FLY_SPRINT_SPEED, FLY_VERTICAL, HALF_WIDTH, HEIGHT, SPRINT_SPEED, WALK_SPEED,
   moveBody, stepPlayer, type Input, type Player, type Solid,
 } from "./walk";
 
@@ -52,7 +52,7 @@ describe("walk body", () => {
 });
 
 describe("player step", () => {
-  const still: Input = { facing: [0, -1], forward: 0, right: 0, up: false, down: false };
+  const still: Input = { facing: [0, -1], forward: 0, right: 0, up: false, down: false, sprint: false };
   const run = (pl: Player, inp: Partial<Input>, seconds: number, solid: Solid = none, floorY = -0.5) => {
     for (let t = 0; t < seconds; t += 1 / 60) pl = stepPlayer(pl, { ...still, ...inp }, 1 / 60, solid, floorY);
     return pl;
@@ -90,11 +90,12 @@ describe("player step", () => {
     expect(midair.vy).toBeLessThan(0); // no jumping off thin air
   });
 
-  it("walks, sneaks and flies at Minecraft speeds", () => {
+  it("walks, sprints at double speed and flies", () => {
     const ground: Player = { feet: [0, -0.5, 0], vy: 0, flying: false, onGround: true };
     close(-run(ground, { forward: 1 }, 1).feet[2], WALK_SPEED);
-    close(-run(ground, { forward: 1, down: true }, 1).feet[2], SNEAK_SPEED);
+    close(-run(ground, { forward: 1, down: true }, 1).feet[2], SPRINT_SPEED);
     close(-run(air(5, true), { forward: 1 }, 1).feet[2], FLY_SPEED);
+    close(-run(air(5, true), { forward: 1, sprint: true }, 1).feet[2], FLY_SPRINT_SPEED);
     // D strafes right: facing north, that is +x.
     expect(run(ground, { right: 1 }, 1).feet[0]).toBeCloseTo(WALK_SPEED, 3);
   });

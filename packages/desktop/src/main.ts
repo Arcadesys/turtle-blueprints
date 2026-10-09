@@ -123,7 +123,7 @@ function startServer(): Promise<Server> {
 function createWindow() {
   win = new BrowserWindow({
     width: 1400, height: 900, minWidth: 800, minHeight: 500,
-    title: "Turtle Blueprints",
+    title: `Turtle Blueprints v${app.getVersion()}`,
     backgroundColor: "#161715",
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
@@ -356,6 +356,8 @@ function buildMenu() {
       submenu: [
         { label: "Check for Updates…", click: () => checkForUpdates(true) },
         { label: "Project on GitHub", click: () => void shell.openExternal("https://github.com/Arcadesys/turtle-blueprints") },
+        { label: "Release Notes", click: () => void shell.openExternal(`https://github.com/Arcadesys/turtle-blueprints/releases/tag/v${app.getVersion()}`) },
+        ...(mac ? [] : [{ type: "separator" as const }, { role: "about" as const }]),
       ],
     },
   ];
@@ -367,6 +369,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
   app.whenReady().then(async () => {
+    app.setAboutPanelOptions({ applicationName: "Turtle Blueprints", applicationVersion: app.getVersion(), website: "https://github.com/Arcadesys/turtle-blueprints" });
     settings = loadSettings(settingsFile());
     ensureBlueprints();
     await startServer();
